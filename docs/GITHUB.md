@@ -4,7 +4,7 @@
 - 安装包：[GitHub Releases](https://github.com/fanyinmo/yingxia/releases)
 - 当前版本：影匣 **1.0.0**，`versionCode 10`。
 
-**发布验证状态：待本次源码上传与 Release 发布完成后核验仓库页面及安装包附件。**
+源码、介绍和展示图片由本仓库维护，安装包通过 Releases 分发。每次发布后核验仓库页面、README 图片和安装包附件。
 
 ## 源码维护
 
