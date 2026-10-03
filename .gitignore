@@ -1,0 +1,18 @@
+.gradle/
+.kotlin/
+.venv/
+.tools/
+local.properties
+**/build/
+work/
+outputs/
+Bug photos/
+*.jks
+*.keystore
+*.cookies.txt
+__pycache__/
+*.pyc
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
