@@ -73,18 +73,41 @@ class BrowserParser(
                         val images = (0 until imageList.length()).map { index ->
                             val image = imageList.optJSONObject(index) ?: JSONObject()
                             AlbumCandidatePolicy.ImageCandidate(strings(image, "urls"),
-                                image.optInt("width"), image.optInt("height"))
+                                image.optInt("width"), image.optInt("height"),
+                                strings(image, "displayUrls"), strings(image, "downloadUrls"))
                         }
                         AlbumCandidatePolicy.ready(videoId, json.optString("page"), item.optString("owner"),
                             item.optString("title"), images, strings(item, "bgmUrls"), item.optDouble("bgmDuration", 0.0))
                     }
-                    val candidate = album ?: entries.firstNotNullOfOrNull { item ->
+                    val validEntries = entries.mapNotNull { item ->
+                        val mediaIds = strings(item, "mediaIds")
+                        val entryUrl = item.optString("url").takeIf(MediaUrls::isAllowed)
+                            ?: WatermarkSources.videoSources(strings(item, "playUrls"), strings(item, "downloadUrls"),
+                                mediaIds = mediaIds).firstOrNull { it.mode != WatermarkMode.ORIGINAL }?.url.orEmpty()
                         PlayerCandidatePolicy.ready(videoId, json.optString("page"),
-                            item.optString("owner"), item.optString("url"), item.optString("title"),
+                            item.optString("owner"), entryUrl, item.optString("title"),
                             item.optInt("ready"), item.optInt("width"), item.optInt("height"),
                             item.optDouble("duration", 0.0))?.copy(
                                 coverUrl = strings(item, "coverUrls").firstOrNull(MediaUrls::isAllowed).orEmpty())
+                            ?.let { it to item }
                     }
+                    val playUrls = validEntries.filter { it.second.optString("sourceField") != "dom" }.flatMap { (video, item) ->
+                        strings(item, "playUrls").ifEmpty {
+                            if (item.has("playUrls")) return@ifEmpty emptyList()
+                            listOf(video.mediaUrl).takeIf { item.optString("sourceField") != "download_addr" }.orEmpty()
+                        }
+                    }
+                    val downloadUrls = validEntries.filter { it.second.optString("sourceField") != "dom" }.flatMap { (video, item) ->
+                        strings(item, "downloadUrls").ifEmpty {
+                            if (item.has("downloadUrls")) return@ifEmpty emptyList()
+                            listOf(video.mediaUrl).takeIf { item.optString("sourceField") == "download_addr" }.orEmpty()
+                        }
+                    }
+                    val observedUrls = validEntries.filter { it.second.optString("sourceField") == "dom" }.map { it.first.mediaUrl }
+                    val mediaIds = validEntries.filter { it.second.optString("sourceField") != "dom" }
+                        .flatMap { strings(it.second, "mediaIds") }.distinct().take(16)
+                    val candidate = album ?: validEntries.firstOrNull()?.first?.copy(
+                        mediaSources = WatermarkSources.videoSources(playUrls, downloadUrls, observedUrls, mediaIds))
                     val now = SystemClock.elapsedRealtime()
                     if (candidate?.isAlbum == true && candidate.bgmUrl.isBlank()) {
                         if (missingMusicSince == null) missingMusicSince = now
@@ -105,7 +128,7 @@ class BrowserParser(
                     }
                     val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty()
                     val snapshot = "page_stats=$stats structured=${json.optBoolean("structured")} " +
-                        "mediaHost=$host choices=${entries.size} albums=${albums.size} images=${candidate?.images?.size ?: 0} " +
+                        "mediaHost=$host choices=${entries.size} mediaIds=${mediaIds.size} albums=${albums.size} images=${candidate?.images?.size ?: 0} " +
                         "bgm=${candidate?.bgmUrl?.isNotBlank() == true} candidate=${candidate != null} reason=$lastReason"
                     if (snapshot != lastSnapshot) { lastSnapshot = snapshot; trace(snapshot) }
                     if (candidate != null && candidate == previous) {

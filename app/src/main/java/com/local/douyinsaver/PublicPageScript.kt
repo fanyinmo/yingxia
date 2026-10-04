@@ -84,13 +84,53 @@ object PublicPageScript {
                     if (Array.isArray(value)) return value.slice(0, 64).map(https).filter(Boolean);
                     return value && typeof value === 'object' ? urlList(value.url_list) : [];
                 };
-                const imageUrls = image => {
+                const displayImageUrls = image => {
                     if (!image || typeof image !== 'object') return [];
-                    // Download/original variants come first; native code skips unsupported origins.
-                    return Array.from(new Set([image.download_url, image.download_addr,
-                        image.download_url_list, image.url_list, image.display_image]
-                        .flatMap(urlList))).slice(0, 64);
+                    return [image.url_list, image.display_image].flatMap(urlList);
                 };
+                const downloadImageUrls = image => {
+                    if (!image || typeof image !== 'object') return [];
+                    return [image.download_url, image.download_addr, image.download_url_list].flatMap(urlList);
+                };
+                const imageAlternates = work => {
+                    const byUri = new Map();
+                    // The official note page pairs bitrate/display and original images by URI.
+                    // Position alone cannot associate a variant with the requested photo.
+                    (Array.isArray(work.img_bitrate) ? work.img_bitrate : []).slice(0, 16).forEach(gear => {
+                        (gear && Array.isArray(gear.images) ? gear.images : []).slice(0, 200).forEach(image => {
+                            if (!image || typeof image.uri !== 'string' || !image.uri || image.uri.length > 2048) return;
+                            const matching = byUri.get(image.uri) || [];
+                            if (matching.length < 16) matching.push(image);
+                            byUri.set(image.uri, matching);
+                        });
+                    });
+                    return byUri;
+                };
+                const imageSources = (image, alternates) => {
+                    if (!image || typeof image !== 'object') return {urls: [], displayUrls: [], downloadUrls: []};
+                    const matching = typeof image.uri === 'string' && image.uri ? alternates.get(image.uri) || [] : [];
+                    const displayUrls = Array.from(new Set([image, ...matching].flatMap(displayImageUrls))).slice(0, 64);
+                    const downloadUrls = Array.from(new Set([image, ...matching].flatMap(downloadImageUrls))).slice(0, 64);
+                    return {urls: Array.from(new Set([...downloadUrls, ...displayUrls])).slice(0, 64),
+                        displayUrls: displayUrls, downloadUrls: downloadUrls};
+                };
+                const addressUrls = value => Array.from(new Set([
+                    ...urlList(value), value && typeof value === 'object' ? https(value.uri) : '',
+                    value && typeof value === 'object' ? https(value.url) : ''].filter(Boolean))).slice(0, 64);
+                const videoRates = video => [video.bit_rate, video.bitrate].filter(Array.isArray)
+                    .flatMap(rates => rates.slice(0, 16)).filter(rate => rate && typeof rate === 'object').slice(0, 16);
+                const codecAddresses = (video, prefix) => [prefix, prefix + '_h264', prefix + '_265',
+                    prefix + '_h265', prefix + '_bytevc1', prefix + '_bytevc2'].map(key => video[key]);
+                const videoPlayAddresses = video => [video, ...videoRates(video)]
+                    .flatMap(rate => codecAddresses(rate, 'play_addr'));
+                const videoPlayUrls = video => Array.from(new Set(videoPlayAddresses(video).flatMap(addressUrls))).slice(0, 64);
+                const videoDownloadUrls = video => Array.from(new Set([video, ...videoRates(video)]
+                    .flatMap(rate => codecAddresses(rate, 'download_addr')).flatMap(addressUrls))).slice(0, 64);
+                const mediaId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{10,256}$/.test(value) &&
+                    /[A-Za-z]/.test(value) ? value : '';
+                const videoMediaIds = video => Array.from(new Set([mediaId(video.video_id),
+                    ...videoPlayAddresses(video).map(address => address && typeof address === 'object'
+                        ? mediaId(address.uri) : '')].filter(Boolean))).slice(0, 16);
                 const audioUrl = value => {
                     const secure = https(value);
                     if (secure) return secure;
@@ -116,7 +156,15 @@ object PublicPageScript {
                 };
                 const candidateUrls = new Set();
                 const addCandidate = candidate => {
-                    if (!candidate.url || candidateUrls.has(candidate.url) || result.candidates.length >= 64) return;
+                    if (!candidate.url) return;
+                    if (candidateUrls.has(candidate.url)) {
+                        const previous = result.candidates.find(entry => entry.url === candidate.url);
+                        ['playUrls', 'downloadUrls', 'mediaIds'].forEach(key => {
+                            previous[key] = Array.from(new Set([...(previous[key] || []), ...(candidate[key] || [])])).slice(0, 64);
+                        });
+                        return;
+                    }
+                    if (result.candidates.length >= 64) return;
                     candidateUrls.add(candidate.url);
                     result.candidates.push(candidate);
                 };
@@ -135,8 +183,9 @@ object PublicPageScript {
                         const images = [x.images, post.images, x.image_list, post.image_list]
                             .find(value => Array.isArray(value) && value.length > 0);
                         if (images && images.length <= 200 && result.albums.length < 16) {
+                            const alternates = imageAlternates(x);
                             result.albums.push({owner: id, title: text(x.desc, 500),
-                                images: images.map(image => ({urls: imageUrls(image),
+                                images: images.map(image => ({...imageSources(image, alternates),
                                     width: finite(image && image.width), height: finite(image && image.height)})),
                                 bgmUrls: bgm.urls, bgmDuration: bgm.duration});
                         }
@@ -150,8 +199,11 @@ object PublicPageScript {
                     }
                     if (x.aweme_id === id && x.video && typeof x.video === 'object') {
                         const m = x.video;
-                        const addr = m.play_addr || {};
-                        const urls = Array.isArray(addr.url_list) ? addr.url_list : [];
+                        const addr = m.play_addr || m.download_addr || {};
+                        const playUrls = videoPlayUrls(m);
+                        const downloadUrls = videoDownloadUrls(m);
+                        const mediaIds = videoMediaIds(m);
+                        const urls = Array.from(new Set([...playUrls, ...downloadUrls]));
                         const width = finite(m.width) || finite(addr.width);
                         const height = finite(m.height) || finite(addr.height);
                         const duration = finite(m.duration) / 1000;
@@ -159,11 +211,20 @@ object PublicPageScript {
                             // Native code owns the host policy. Keep alternatives so an unsupported
                             // first address cannot conceal a valid later address or the DOM source.
                             urls.slice(0, 64).map(https).filter(Boolean).forEach(url => {
-                                if (result.candidates.length < 63) addCandidate({owner: id, url: url,
+                                if (result.candidates.length < 63 || candidateUrls.has(url)) addCandidate({owner: id, url: url,
                                     title: text(x.desc, 500), ready: 1, width: width, height: height,
                                     duration: duration, structured: true,
+                                    sourceField: playUrls.includes(url) ? 'play_addr' : 'download_addr',
+                                    playUrls: playUrls, downloadUrls: downloadUrls, mediaIds: mediaIds,
                                     coverUrls: [m.origin_cover, m.cover, m.dynamic_cover].flatMap(urlList)});
                             });
+                            if (!urls.length && mediaIds.length && result.candidates.length < 63) {
+                                // Native source policy constructs entries from this exact work's media IDs.
+                                result.candidates.push({owner: id, url: '', title: text(x.desc, 500), ready: 1,
+                                    width: width, height: height, duration: duration, structured: true,
+                                    sourceField: 'metadata', playUrls: playUrls, downloadUrls: downloadUrls,
+                                    mediaIds: mediaIds, coverUrls: [m.origin_cover, m.cover, m.dynamic_cover].flatMap(urlList)});
+                            }
                         }
                     }
                     Object.values(x).forEach(y => {
@@ -208,7 +269,8 @@ object PublicPageScript {
                     addCandidate({owner: id, url: src,
                         title: text((document.querySelector('h1') || {}).textContent || document.title, 500),
                         ready: finite(v.readyState), duration: finite(v.duration),
-                        width: finite(v.videoWidth), height: finite(v.videoHeight), structured: false});
+                        width: finite(v.videoWidth), height: finite(v.videoHeight), structured: false,
+                        sourceField: 'dom', playUrls: src ? [src] : [], downloadUrls: []});
                 }
                 // Preserve the original single-candidate shape for callers while they migrate.
                 if (result.candidates.length) Object.assign(result, result.candidates[0]);

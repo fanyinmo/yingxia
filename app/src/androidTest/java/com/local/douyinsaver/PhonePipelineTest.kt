@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.content.Intent
 import android.media.MediaMetadataRetriever
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
@@ -23,6 +24,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** Opt-in public-link pipeline; ordinary test runs never request or download a real work. */
 @RunWith(AndroidJUnit4::class)
@@ -94,13 +98,35 @@ class PhonePipelineTest {
         val ready = awaitStage(TaskStage.READY, 90_000L)
         assertEquals("Parsed video must match the requested work", id, ready.videoId)
         Log.i(TAG, "parsed id=$id")
+        if (arguments.getString("inspectSources") == "true") {
+            instrumentation.runOnMainSync {
+                val video = checkNotNull(model.video)
+                fun sources(items: List<MediaSource>) = JSONArray(items.map { source ->
+                    JSONObject().put("url", source.url).put("mode", source.mode.name)
+                })
+                val report = JSONObject().put("id", video.id).put("album", video.isAlbum)
+                    .put("original", video.mediaUrl).put("sources", sources(video.mediaSources))
+                    .put("images", JSONArray(video.images.map { image ->
+                        JSONObject().put("original", image.url).put("sources", sources(image.mediaSources))
+                    }))
+                File(instrumentation.targetContext.cacheDir, "watermark-sources-$id.json").writeText(report.toString())
+                Log.i(TAG, "source_versions clean=${WatermarkSources.available(video, WatermarkMode.CLEAN)} marked=${WatermarkSources.available(video, WatermarkMode.WATERMARKED)} images=${video.images.size}")
+            }
+        }
         if (!download) return
 
-        instrumentation.runOnMainSync { model.download() }
+        val requestedMode = WatermarkMode.CLEAN
+        require(arguments.getString("watermarkMode") in listOf(null, WatermarkMode.CLEAN.name)) {
+            "This app only saves clean sources"
+        }
+        instrumentation.runOnMainSync {
+            model.download(force = arguments.getString("forceDownload") == "true")
+        }
         val done = awaitStage(TaskStage.DONE, downloadTimeout)
         val saved = done.history.firstOrNull { it.id == id && it.uri !in previousUris }
         assertNotNull("No newly saved record for the requested work", saved)
         checkNotNull(saved)
+        if (requestedMode == WatermarkMode.CLEAN) assertEquals(WatermarkMode.CLEAN, saved.watermarkMode)
         assertTrue("The saved record must contain more than 32 bytes", saved.bytes > 32L)
         verifySavedMedia(saved)
     }
@@ -210,6 +236,16 @@ class PhonePipelineTest {
                 Log.i(TAG, "media_verified id=${saved.id} bytes=${saved.bytes} width=$width height=$height duration_ms=$duration frame=${frame.width}x${frame.height}")
             } finally {
                 frame.recycle()
+            }
+            if (InstrumentationRegistry.getArguments().getString("captureFrames") == "true") {
+                listOf(0L, 1_500_000L, 4_000_000L, duration * 500L, (duration - 1_000L).coerceAtLeast(0L) * 1000L)
+                    .distinct().forEachIndexed { index, time ->
+                    val still = retriever.getFrameAtTime(time, MediaMetadataRetriever.OPTION_CLOSEST)
+                    if (still != null) try {
+                        File(context.cacheDir, "watermark-${saved.id}-${saved.watermarkMode ?: "ORIGINAL"}-$index.png")
+                            .outputStream().use { still.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    } finally { still.recycle() }
+                }
             }
             val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0).orEmpty() else ""

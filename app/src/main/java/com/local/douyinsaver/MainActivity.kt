@@ -70,7 +70,7 @@ class MainActivity : ComponentActivity() {
     private fun receiveIntent(source: Intent?) {
         if (source?.hasExtra("open_history") == true) model.selectedPage = if (source.getBooleanExtra("open_history", false)) AppPage.HISTORY else AppPage.HOME
         if (source?.action == Intent.ACTION_SEND && source.type == "text/plain") source.getStringExtra(Intent.EXTRA_TEXT)?.let {
-            if (model.busy) Toast.makeText(this, "任务进行中，可在首页使用批量队列添加链接", Toast.LENGTH_LONG).show()
+            if (model.busy || model.queueRunning || model.batchSaving) Toast.makeText(this, "任务进行中，可在首页使用批量队列添加链接", Toast.LENGTH_LONG).show()
             else { model.acceptShare(it); model.selectedPage = AppPage.HOME }
         }
     }
@@ -123,7 +123,7 @@ private fun SaverScreen(model: SaverViewModel, appearance: AppearanceStore) {
             }
         }
     }
-    if (confirmDuplicate) AlertDialog(onDismissRequest = { confirmDuplicate = false }, title = { Text("这个作品已经保存过") },
+    if (confirmDuplicate) AlertDialog(onDismissRequest = { confirmDuplicate = false }, title = { Text("此作品已经保存过") },
         text = { Text("可以打开已有文件，也可以再保存一份。新文件不会覆盖已有文件。") },
         confirmButton = { TextButton(onClick = { confirmDuplicate = false; launchDownload(true) }) { Text("再保存一份") } },
         dismissButton = { Row {

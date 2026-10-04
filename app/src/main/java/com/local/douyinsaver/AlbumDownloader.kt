@@ -39,7 +39,8 @@ internal class AlbumDownloader(private val context: Context) {
                 currentCoroutineContext().ensureActive()
                 val local = File(directory, "source_$index")
                 val before = downloaded
-                val bytes = transfer.fetch(image.url, local, AlbumMediaPolicy.MAX_IMAGE_BYTES, "第 ${index + 1} 张图片") { bytes, _ ->
+                val bytes = transfer.fetch(image.url, local, AlbumMediaPolicy.MAX_IMAGE_BYTES, "第 ${index + 1} 张图片",
+                    validateUrl = { url -> WatermarkSources.requireSelectedUrl(url, options.watermarkMode, image.mediaSources) }) { bytes, _ ->
                     require(before + bytes <= AlbumMediaPolicy.MAX_ALBUM_BYTES) { "图集总大小超过 512 MB 上限" }
                     onProgress(before + bytes, -1L)
                 }
@@ -109,6 +110,7 @@ internal class AlbumDownloader(private val context: Context) {
                 locationLabel = pending.first().locationLabel,
                 mimeType = images.map { it.mimeType }.distinct().singleOrNull() ?: "image/*",
                 uris = uris, coverUri = uris.first(), fileName = names.first(), isAlbum = true,
+                watermarkMode = WatermarkSources.actualMode(content, options.watermarkMode),
             )
             committed = true
             onSaved(result)
@@ -137,7 +139,7 @@ internal class AlbumDownloader(private val context: Context) {
             currentCoroutineContext().ensureActive()
             val published = pending.publish()
             val result = SavedVideo(content.id, content.title, published.toString(), video.length(), pending.locationLabel,
-                fileName = name, isAlbum = true)
+                fileName = name, isAlbum = true, watermarkMode = WatermarkSources.actualMode(content, options.watermarkMode))
             onSaved(result)
             return result
         } finally { runCatching { pending.cleanup() } }

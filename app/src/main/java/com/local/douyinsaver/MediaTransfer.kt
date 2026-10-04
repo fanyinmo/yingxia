@@ -9,9 +9,13 @@ import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
+import java.net.URI
 
 /** Bounded, cancellation-aware download to an app-owned temporary file. */
-internal class MediaTransfer {
+internal class MediaTransfer(
+    private val connections: (URI) -> HttpURLConnection = { it.toURL().openConnection() as HttpURLConnection },
+    private val cookies: (String) -> String? = { CookieManager.getInstance().getCookie(it) },
+) {
     @Volatile private var connection: HttpURLConnection? = null
 
     fun cancel() { connection?.disconnect() }
@@ -21,6 +25,7 @@ internal class MediaTransfer {
         destination: File,
         maximumBytes: Long,
         noun: String,
+        validateUrl: (String) -> Unit = {},
         onProgress: suspend (Long, Long) -> Unit,
     ): Long = try {
         withTimeout(180_000L) {
@@ -30,14 +35,15 @@ internal class MediaTransfer {
                 for (hop in 0..6) {
                     currentCoroutineContext().ensureActive()
                     val uri = MediaUrls.requireAllowed(currentUrl)
-                    val response = (uri.toURL().openConnection() as HttpURLConnection).apply {
+                    validateUrl(currentUrl)
+                    val response = connections(uri).apply {
                         instanceFollowRedirects = false
                         connectTimeout = 25_000
                         readTimeout = 25_000
                         setRequestProperty("User-Agent", ShareLinks.DESKTOP_UA)
                         setRequestProperty("Referer", "https://www.douyin.com/")
                         setRequestProperty("Accept-Encoding", "identity")
-                        CookieManager.getInstance().getCookie(currentUrl)?.let { setRequestProperty("Cookie", it) }
+                        cookies(currentUrl)?.let { setRequestProperty("Cookie", it) }
                     }
                     connection = response
                     val status = response.responseCode

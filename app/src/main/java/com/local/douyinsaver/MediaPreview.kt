@@ -6,10 +6,6 @@ import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.LruCache
-import android.webkit.CookieManager
-import android.widget.MediaController
-import android.widget.VideoView
-import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -20,17 +16,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -152,42 +143,6 @@ fun AlbumPreview(images: List<ParsedImage>) {
                     }
                     TextButton(onClick = { selected = null }, modifier = Modifier.align(Alignment.End)) { Text("关闭") }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-fun VideoPreviewDialog(source: String, title: String, onDismiss: () -> Unit) {
-    val allowed = remember(source) { Uri.parse(source).scheme == "content" || MediaUrls.isAllowed(source) }
-    var playback by remember { mutableStateOf<VideoView?>(null) }
-    var error by remember { mutableStateOf(false) }
-    var preparing by remember { mutableStateOf(true) }
-    val owner = LocalActivity.current as? LifecycleOwner
-    val currentPlayback = playback
-    DisposableEffect(currentPlayback, owner) {
-        val listener = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE) currentPlayback?.pause() }
-        owner?.lifecycle?.addObserver(listener)
-        onDispose { owner?.lifecycle?.removeObserver(listener); currentPlayback?.stopPlayback() }
-    }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(Modifier.fillMaxWidth().padding(16.dp), shape = MaterialTheme.shapes.large) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(title, maxLines = 2, style = MaterialTheme.typography.titleMedium)
-                if (allowed && !error) Box(Modifier.fillMaxWidth().height(330.dp).background(Color.Black), contentAlignment = Alignment.Center) {
-                    AndroidView(factory = { context -> VideoView(context).apply {
-                        playback = this
-                        setMediaController(MediaController(context).also { it.setAnchorView(this) })
-                        setOnPreparedListener { preparing = false; start() }
-                        setOnErrorListener { _, _, _ -> error = true; preparing = false; true }
-                        val headers = mutableMapOf("User-Agent" to ShareLinks.DESKTOP_UA, "Referer" to "https://www.douyin.com/")
-                        if (Uri.parse(source).scheme == "https") CookieManager.getInstance().getCookie(source)?.let { headers["Cookie"] = it }
-                        setVideoURI(Uri.parse(source), headers)
-                    } }, modifier = Modifier.fillMaxSize())
-                    if (preparing) CircularProgressIndicator(color = Color.White)
-                } else Text("暂时无法预览，可以保存后使用本地播放器查看。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("预览会使用网络流量", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("关闭预览") }
             }
         }
     }

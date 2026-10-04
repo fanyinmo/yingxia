@@ -66,6 +66,124 @@ test('uses exact work metadata before a DOM video exists', () => {
   assert.equal(result.width, 1920);
   assert.equal(result.stats.videoInfoPresent, true);
 });
+test('video playback and download sources remain separate and preserve signed queries', () => {
+  const entry = item();
+  const playback = 'https://aweme.snssdk.com/aweme/v1/playwm/?video_id=own-video-id&token=a%2Bb&line=0';
+  const download = 'https://v26-web.douyinvod.com/video/download.mp4?signature=keep%2Bexact&watermark=1';
+  entry.video.play_addr.url_list = [playback];
+  entry.video.download_addr = {url_list: [download]};
+  const result = run(route(id, {videoInfoRes: {item_list: [entry]}}));
+  assert.deepEqual(result.candidates.map(c => c.url), [playback, download]);
+  assert.deepEqual(result.candidates.map(c => c.sourceField), ['play_addr', 'download_addr']);
+  for (const candidate of result.candidates) {
+    assert.deepEqual(candidate.playUrls, [playback]);
+    assert.deepEqual(candidate.downloadUrls, [download]);
+  }
+});
+test('another work cannot supply the target video download rendition', () => {
+  const recommendation = item(otherId);
+  recommendation.video.download_addr = {url_list: ['https://v26-web.douyinvod.com/video/other.mp4']};
+  const result = run(route(id, {videoInfoRes: {item_list: [recommendation, item()]}}));
+  assert.deepEqual(result.candidates[0].downloadUrls, []);
+  assert.deepEqual(result.candidates.map(c => c.url), [media]);
+});
+test('later hydration of the same video retains a download source beside a repeated playback URL', () => {
+  const hydrated = item();
+  const download = 'https://v26-web.douyinvod.com/video/hydrated-download.mp4';
+  hydrated.video.download_addr = {url_list: [download]};
+  const result = run({item_list: [item(), hydrated]});
+  assert.deepEqual(result.candidates.map(c => c.url), [media, download]);
+  assert.deepEqual(result.candidates[0].downloadUrls, [download]);
+});
+test('same-work codec and bitrate alternatives retain their playback role', () => {
+  const entry = item();
+  const h264 = 'https://v26-web.douyinvod.com/video/h264.mp4?sig=%2F';
+  const bitrate = 'https://v26-web.douyinvod.com/video/bitrate.mp4';
+  entry.video.play_addr_h264 = {url_list: [h264]};
+  entry.video.bit_rate = [{play_addr: {url_list: [bitrate]}}];
+  const result = run({item_list: [entry]});
+  assert.deepEqual(result.candidates.map(c => c.url), [media, h264, bitrate]);
+  assert.deepEqual(result.candidates[0].playUrls, [media, h264, bitrate]);
+  assert.deepEqual(result.candidates[0].downloadUrls, []);
+});
+
+test('exact work media URI, codec URI and bitrate URI remain available beside CDN URLs', () => {
+  const entry = item();
+  entry.video.play_addr.uri = 'v0200f0000main_video';
+  entry.video.play_addr_h264 = {uri: 'v0200f0000h264_video'};
+  entry.video.video_id = 'v0200f0000explicit_id';
+  entry.video.bit_rate = [{play_addr: {uri: 'v0200f0000bitrate_id'}}];
+  const result = run({item_list: [entry]});
+  assert.deepEqual(result.candidates[0].mediaIds,
+    ['v0200f0000explicit_id', 'v0200f0000main_video', 'v0200f0000h264_video', 'v0200f0000bitrate_id']);
+  assert.equal(result.url, media);
+  assert.deepEqual(result.candidates[0].playUrls, [media]);
+});
+
+test('URI-only target metadata can be handed to native policy without inventing a CDN URL', () => {
+  const entry = item();
+  entry.video.play_addr = {uri: 'v0200f0000only_media'};
+  const result = run({item_list: [entry]});
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].sourceField, 'metadata');
+  assert.equal(result.candidates[0].owner, id);
+  assert.deepEqual(result.candidates[0].mediaIds, ['v0200f0000only_media']);
+  assert.equal(result.candidates[0].url, '');
+  assert.deepEqual(result.candidates[0].playUrls, []);
+});
+
+test('numeric work ids, media URLs, malformed URIs and recommendations cannot supply a media identifier', () => {
+  const target = item();
+  const recommendation = item(otherId);
+  recommendation.video.play_addr.uri = 'v0200f0000other_work';
+  for (const uri of [id, Number(id), '../v0200f0000media', 'short', 'https://v3.douyinvod.com/video.mp4', 'v0200f0000 space']) {
+    target.video.play_addr.uri = uri;
+    target.video.video_id = id;
+    const result = run({item_list: [recommendation, target]});
+    assert.ok(result.candidates.every(candidate => candidate.owner === id && candidate.mediaIds.length === 0));
+    assert.ok(result.candidates.every(candidate => !candidate.url.includes('other_work')));
+  }
+});
+
+test('every bitrate download address keeps its download role and signed query', () => {
+  const entry = item();
+  const mainDownload = 'https://v3.douyinvod.com/main.mp4?sig=original%2Bsignature';
+  const rateDownload = 'https://v6.douyinvod.com/rate.mp4?sig=rate%2Bsignature';
+  const codecDownload = 'https://v9.douyinvod.com/h264.mp4?sig=codec%2Bsignature';
+  entry.video.download_addr = {url_list: [mainDownload]};
+  entry.video.bit_rate = [{download_addr: {url_list: [rateDownload]}, download_addr_h264: {url_list: [codecDownload]}}];
+  const result = run({item_list: [entry]});
+  assert.deepEqual(result.candidates[0].downloadUrls, [mainDownload, rateDownload, codecDownload]);
+  assert.deepEqual(result.candidates.map(candidate => candidate.url), [media, mainDownload, rateDownload, codecDownload]);
+  assert.deepEqual(result.candidates.map(candidate => candidate.sourceField),
+    ['play_addr', 'download_addr', 'download_addr', 'download_addr']);
+});
+
+test('duplicate exact-work hydration merges newly published media URIs with existing URL metadata', () => {
+  const hydrated = item();
+  hydrated.video.play_addr.uri = 'v0200f0000later_media';
+  const result = run({item_list: [item(), hydrated]});
+  assert.equal(result.candidates.length, 1);
+  assert.deepEqual(result.candidates[0].mediaIds, ['v0200f0000later_media']);
+});
+test('download-only metadata remains playable without being mislabeled as a playback field', () => {
+  const entry = item();
+  delete entry.video.play_addr;
+  entry.video.download_addr = {url_list: [media]};
+  const result = run({item_list: [entry]});
+  assert.equal(result.url, media);
+  assert.deepEqual(result.candidates[0].playUrls, []);
+  assert.deepEqual(result.candidates[0].downloadUrls, [media]);
+  assert.equal(result.candidates[0].sourceField, 'download_addr');
+});
+test('insecure or credential-bearing download sources cannot enter separated alternatives', () => {
+  const entry = item();
+  entry.video.download_addr = {url_list: ['http://v26-web.douyinvod.com/download.mp4',
+    'https://user:pass@v26-web.douyinvod.com/download.mp4']};
+  const result = run({item_list: [entry]});
+  assert.deepEqual(result.candidates[0].downloadUrls, []);
+  assert.deepEqual(result.candidates.map(c => c.url), [media]);
+});
 test('recommendations cannot substitute for the requested structured work', () => {
   assert.equal(run(route(id, {videoInfoRes: {item_list: [item(otherId)]}})).url, '');
   assert.equal(run(route(id, {videoInfoRes: {item_list: [item(otherId), item()]}})).owner, id);
@@ -187,6 +305,62 @@ test('static albums retain ordered images and music without video metadata', () 
   assert.equal(result.albums[0].images[1].width, 1440);
   assert.deepEqual(result.albums[0].bgmUrls, [music]);
   assert.equal(result.albums[0].bgmDuration, 30);
+});
+
+test('a single display-only note keeps its source role and own soundtrack without a marked download variant', () => {
+  const entry = album();
+  const signed = 'https://p5-sign.douyinpic.com/one~tplv-dy-aweme-images:q75.webp?signature=a%2Bb%3D&x=&x=1';
+  entry.images = [{uri: 'one-photo', width: 1080, height: 1440, url_list: [signed]}];
+  delete entry.music;
+  entry.video = {play_addr: {uri: music}, duration: 12000};
+  const result = run({loaderData: {'note_(id)/page': {itemId: id, videoInfoRes: {item_list: [entry]}}}}, [],
+    {page: `https://www.iesdouyin.com/share/note/${id}/`});
+  assert.equal(result.candidates.length, 0);
+  assert.equal(result.albums.length, 1);
+  assert.equal(result.albums[0].owner, id);
+  assert.deepEqual(result.albums[0].images[0], {
+    urls: [signed], displayUrls: [signed], downloadUrls: [], width: 1080, height: 1440,
+  });
+  assert.deepEqual(result.albums[0].bgmUrls, [music]);
+  assert.equal(result.albums[0].bgmDuration, 12);
+});
+test('album display and download variants retain their original signed addresses', () => {
+  const entry = album();
+  const download = 'https://p3.douyinpic.com/photo~watermark,image.jpg?signature=keep%2Bexact';
+  entry.images[0].download_url_list = [download];
+  const image = run({item_list: [entry]}).albums[0].images[0];
+  assert.deepEqual(image.displayUrls, [photo]);
+  assert.deepEqual(image.downloadUrls, [download]);
+  assert.deepEqual(image.urls, [download, photo]);
+});
+test('img_bitrate photos bind by URI despite a different variant order', () => {
+  const entry = album();
+  entry.images[0].uri = 'photo-a';
+  entry.images[1].uri = 'photo-b';
+  const first = 'https://p3.douyinpic.com/a-display.jpg?token=keep%2B';
+  const second = 'https://p3.douyinpic.com/b-display.jpg';
+  entry.img_bitrate = [{name: 'gear_480p', images: [
+    {uri: 'photo-b', url_list: [second]}, {uri: 'photo-a', url_list: [first]},
+    {uri: 'unrelated', url_list: ['https://p3.douyinpic.com/unrelated.jpg']},
+  ]}];
+  const images = run({item_list: [entry]}).albums[0].images;
+  assert.deepEqual(images[0].displayUrls, [photo, first]);
+  assert.deepEqual(images[1].displayUrls, [entry.images[1].url_list[0], second]);
+  assert.ok(!JSON.stringify(images).includes('unrelated.jpg'));
+});
+test('img_bitrate cannot attach by position or obtain a matching URI from another work', () => {
+  const entry = album();
+  entry.images[0].uri = 'photo-a';
+  entry.img_bitrate = [{images: [{uri: 'other-uri', url_list: ['https://p3.douyinpic.com/wrong.jpg']},
+    {url_list: ['https://p3.douyinpic.com/no-uri.jpg']}]}];
+  const other = album(otherId);
+  other.img_bitrate = [{images: [{uri: 'photo-a', url_list: ['https://p3.douyinpic.com/other-work.jpg']}]}];
+  const result = run({item_list: [other, entry]});
+  assert.equal(result.albums.length, 1);
+  assert.deepEqual(result.albums[0].images[0].displayUrls, [photo]);
+  assert.ok(!JSON.stringify(result.albums).includes('wrong.jpg'));
+  assert.ok(!JSON.stringify(result.albums).includes('no-uri.jpg'));
+  assert.ok(!JSON.stringify(result.albums).includes('other-work.jpg'));
 });
 
 test('image_post_info and original/download variants preserve fallback order', () => {

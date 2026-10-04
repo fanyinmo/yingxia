@@ -34,6 +34,7 @@ internal fun SettingsScreen(model: SaverViewModel, appearance: AppearanceStore, 
             }
             Text("首页可以临时填写文件名；图集自动添加图片序号。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } }
+        item { SectionCard { PreviewSettingsControls() } }
         item { SectionCard { AppearanceControls(appearance) } }
         item { SectionCard {
             Text("下载通知", style = MaterialTheme.typography.titleMedium)

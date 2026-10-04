@@ -20,6 +20,39 @@ class MediaUrlsTest {
         assertTrue(MediaUrls.isAllowed("HTTPS://V11-WEBA.DOUYINVOD.COM:443/video.mp4"))
     }
 
+    @Test fun acceptsRotatingColdSchedulingHostsWithoutRewritingSignedAddresses() {
+        val hosts = listOf("1AAAPDVQ9V7RO58H1WXTK5JDB4O5MTOGKB6YWG7NOEY.bdcgslb.com",
+            "1AAAUMQG5W1GGJGYJ6U2RGVZZXEGYJT3KXA4FLTUS4A.bdcgslb.com")
+        val cold = MediaUrls.requireAllowed("https://v5-coldx.douyinvod.com/first.mp4")
+        hosts.forEach { host ->
+            val target = "https://$host/a%2Fb/video.mp4?signature=a%2Bb%3D&x=&x=1"
+            assertEquals(target, MediaUrls.requireAllowed(target).toString())
+            assertEquals(target, MediaUrls.redirect(cold, target))
+            assertTrue(MediaUrls.isAllowed(target.replace(host, host.lowercase())))
+            assertTrue(MediaUrls.isAllowed(target.replace(host, "$host:443")))
+        }
+    }
+
+    @Test fun coldSchedulingRulesRejectApexNestedHostsLookalikesAndUnsafeAuthorities() {
+        val host = "1AAAPDVQ9V7RO58H1WXTK5JDB4O5MTOGKB6YWG7NOEY.bdcgslb.com"
+        listOf("https://bdcgslb.com/video.mp4", "https://nested.$host/video.mp4",
+            "https://$host.evil.example/video.mp4", "https://fake-bdcgslb.com/video.mp4",
+            "https://-invalid.bdcgslb.com/video.mp4", "https://invalid-.bdcgslb.com/video.mp4",
+            "https://${"a".repeat(64)}.bdcgslb.com/video.mp4", "https://$host./video.mp4",
+            "https://user:password@$host/video.mp4", "https://$host@evil.example/video.mp4",
+            "http://$host/video.mp4", "https://$host:80/video.mp4",
+            "https://$host:8443/video.mp4").forEach(::assertRejected)
+    }
+
+    @Test fun aTrustedSchedulingHttpLocationUsesHttpsWithTheSameSignatureButNotOtherPorts() {
+        val cold = MediaUrls.requireAllowed("https://v5-coldx.douyinvod.com/first.mp4")
+        val host = "1AAAPDVQ9V7RO58H1WXTK5JDB4O5MTOGKB6YWG7NOEY.bdcgslb.com"
+        val signedPath = "/a%2Fb.mp4?signature=a%2Bb%3D&x=&x=1"
+        assertEquals("https://$host$signedPath", MediaUrls.redirect(cold, "http://$host:80$signedPath"))
+        assertRejected("http://$host$signedPath")
+        assertThrows(IllegalArgumentException::class.java) { MediaUrls.redirect(cold, "http://$host:8080$signedPath") }
+    }
+
     @Test fun acceptsPublicPlaybackEntryWithoutBroadeningOtherServices() {
         val entry = "https://aweme.snssdk.com/aweme/v1/play/?video_id=example&ratio=1080p&line=0"
         assertEquals(entry, MediaUrls.requireAllowed(entry).toString())
@@ -72,11 +105,52 @@ class MediaUrlsTest {
         val cdn = "https://v26-web.douyinvod.com/video.mp4?token=a%2Bb"
         assertEquals(cdn, MediaUrls.redirect(current, cdn))
         assertEquals("https://aweme.snssdk.com/aweme/v1/play/?video_id=next", MediaUrls.redirect(current, "?video_id=next"))
-        listOf(null, "", "https://private.test/video.mp4", "http://v26-web.douyinvod.com/video.mp4",
-            "https://127.0.0.1/a", "https://v26-web.douyinvod.com/a bad?token=secret", "x".repeat(16_385)).forEach { target ->
+        listOf(null, "", "https://private.test/video.mp4", "http://v26-web.douyinvod.com:8080/video.mp4",
+            "https://127.0.0.1/a", "https://v26-web.douyinvod.com/a bad?token=secret", "?token=secret value", "x".repeat(16_385)).forEach { target ->
             val error = assertThrows(IllegalArgumentException::class.java) { MediaUrls.redirect(current, target) }
             assertFalse(error.message.orEmpty().contains("secret"))
         }
+    }
+
+    @Test fun trustedHttpRedirectsUpgradeToHttpsWithoutChangingRawSignedComponents() {
+        val current = MediaUrls.requireAllowed("https://v5-coldx.douyinvod.com/first.mp4")
+        listOf("http://v26-web.douyinvod.com/a%2Fb/video.mp4?token=a%2Bb%3D&x=&x=1#player",
+            "http://v26-web.douyinvod.com:80/a%2Fb/video.mp4?token=a%2Bb%3D&x=&x=1#player").forEach { http ->
+            val expected = http.replace("http://", "https://").replace(".com:80/", ".com/")
+            assertEquals(expected, MediaUrls.redirect(current, http))
+            assertRejected(http) // Initial addresses continue to require HTTPS.
+        }
+    }
+
+    @Test fun redirectDiagnosticsShowRejectedTargetsWithoutPathsQueriesOrCredentials() {
+        val current = MediaUrls.requireAllowed("https://v5-coldx.douyinvod.com/first.mp4")
+        val diagnostics = mutableListOf<String>()
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            MediaUrls.redirect(current, "http://private_user:private_password@unknown.example:80/private_path?token=private_token",
+                diagnostics::add)
+        }
+        assertEquals(listOf("media_redirect scheme=http host=unknown.example port=80 allowed=false"), diagnostics)
+        val all = diagnostics.joinToString() + error.message.orEmpty()
+        assertFalse(all.contains("private_"))
+    }
+
+    @Test fun trustedHttpUpgradeStillRefusesOtherPortsAndUntrustedOrLookalikeHosts() {
+        val current = MediaUrls.requireAllowed("https://v5-coldx.douyinvod.com/first.mp4")
+        listOf("http://unknown.example/a.mp4", "http://v5-coldx.douyinvod.com.evil.example/a.mp4",
+            "http://v5-coldx.douyinvod.com:443/a.mp4", "http://v5-coldx.douyinvod.com:8080/a.mp4",
+            "http://user@v5-coldx.douyinvod.com/a.mp4", "http://127.0.0.1/a.mp4",
+            "http://aweme.snssdk.com/aweme/v1/user/").forEach { target ->
+            assertThrows(IllegalArgumentException::class.java) { MediaUrls.redirect(current, target) }
+        }
+    }
+
+    @Test fun compatibleRedirectLogsTheOriginalHttpTargetAndItsValidatedHttpsUpgrade() {
+        val current = MediaUrls.requireAllowed("https://v5-coldx.douyinvod.com/first.mp4")
+        val diagnostics = mutableListOf<String>()
+        MediaUrls.redirect(current, "http://v26-web.douyinvod.com:80/private_path?token=private_token", diagnostics::add)
+        assertEquals(listOf("media_redirect scheme=http host=v26-web.douyinvod.com port=80 allowed=false",
+            "media_redirect scheme=https host=v26-web.douyinvod.com port=-1 allowed=true upgraded=true"), diagnostics)
+        assertFalse(diagnostics.joinToString().contains("private_"))
     }
 
     private fun assertRejected(url: String) {

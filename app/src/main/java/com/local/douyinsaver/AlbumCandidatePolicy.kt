@@ -2,7 +2,13 @@ package com.local.douyinsaver
 
 /** A static album must belong to the requested work and retain its complete image order. */
 object AlbumCandidatePolicy {
-    data class ImageCandidate(val urls: List<String>, val width: Int = 0, val height: Int = 0)
+    data class ImageCandidate(
+        val urls: List<String>,
+        val width: Int = 0,
+        val height: Int = 0,
+        val displayUrls: List<String> = emptyList(),
+        val downloadUrls: List<String> = emptyList(),
+    )
 
     fun ready(
         expectedId: String,
@@ -16,9 +22,13 @@ object AlbumCandidatePolicy {
         if (ShareLinks.videoId(pageUrl) != expectedId || ownerId != expectedId) return null
         if (imageCandidates.isEmpty() || imageCandidates.size > MAX_IMAGES) return null
         val images = imageCandidates.map { image ->
+            // Preserve the source field distinction; an official download image can
+            // have different watermarking from the image displayed in the gallery.
+            val sources = WatermarkSources.imageSources(image.displayUrls, image.downloadUrls, image.urls)
             val url = image.urls.firstOrNull { it.length <= 32_768 && MediaUrls.isAllowed(it) }
+                ?: sources.firstOrNull()?.url
                 ?: return null // Do not silently turn an incomplete album into a successful download.
-            ParsedImage(url, image.width.coerceIn(0, 32_768), image.height.coerceIn(0, 32_768))
+            ParsedImage(url, image.width.coerceIn(0, 32_768), image.height.coerceIn(0, 32_768), sources)
         }
         val music = bgmCandidates.asSequence().mapNotNull(::secureBgmUrl).firstOrNull().orEmpty()
         return ParsedVideo(

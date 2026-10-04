@@ -129,9 +129,16 @@ class PublicVideoApi {
                         report("detail_api result=album_too_large")
                         return@withContext null
                     }
+                    val alternates = imageAlternates(detail)
                     val images = (0 until imageList.length()).map { index ->
                         val image = imageList.optJSONObject(index) ?: JSONObject()
-                        AlbumCandidatePolicy.ImageCandidate(imageUrls(image), image.optInt("width"), image.optInt("height"))
+                        val matching = (image.opt("uri") as? String)?.takeIf { it.isNotBlank() && it.length <= 2048 }
+                            ?.let { alternates[it] }.orEmpty()
+                        val originals = listOf(image) + matching
+                        val displayUrls = originals.flatMap(::displayImageUrls).distinct().take(64)
+                        val downloadUrls = originals.flatMap(::downloadImageUrls).distinct().take(64)
+                        AlbumCandidatePolicy.ImageCandidate((downloadUrls + displayUrls).distinct().take(64),
+                            image.optInt("width"), image.optInt("height"), displayUrls, downloadUrls)
                     }
                     val music = detail.optJSONObject("music")
                     val address = detail.optJSONObject("video")?.optJSONObject("play_addr")
@@ -146,12 +153,13 @@ class PublicVideoApi {
                     return@withContext album
                 }
                 val video = detail.optJSONObject("video")
-                val address = video?.optJSONObject("play_addr")
-                val urls = address?.optJSONArray("url_list")
-                val mediaUrl = if (urls != null) {
-                    (0 until urls.length()).asSequence().map { urls.optString(it) }
-                        .firstOrNull { it.length <= 32_768 && MediaUrls.isAllowed(it) }
-                } else null
+                val address = video?.optJSONObject("play_addr") ?: video?.optJSONObject("download_addr")
+                val playUrls = video?.let(::videoPlayUrls).orEmpty()
+                val downloadUrls = video?.let(::videoDownloadUrls).orEmpty()
+                val mediaIds = video?.let(::videoMediaIds).orEmpty()
+                val mediaSources = WatermarkSources.videoSources(playUrls, downloadUrls, mediaIds = mediaIds)
+                val mediaUrl = (playUrls + downloadUrls).firstOrNull(MediaUrls::isAllowed)
+                    ?: mediaSources.firstOrNull { it.mode != WatermarkMode.ORIGINAL }?.url
                 val width = video?.optInt("width", 0)?.takeIf { it > 0 }
                     ?: address?.optInt("width", 0) ?: 0
                 val height = video?.optInt("height", 0)?.takeIf { it > 0 }
@@ -164,7 +172,7 @@ class PublicVideoApi {
                     return@withContext null
                 }
                 ensureNotCancelled()
-                report("detail_api result=candidate width=$width height=$height duration_ms=$durationMs")
+                report("detail_api result=candidate width=$width height=$height duration_ms=$durationMs media_ids=${mediaIds.size} play=${playUrls.size} download=${downloadUrls.size}")
                 ParsedVideo(
                     id = id,
                     title = detail.optString("desc").trim().take(500).ifBlank { "抖音视频 $id" },
@@ -174,6 +182,7 @@ class PublicVideoApi {
                     height = height,
                     coverUrl = listOf("origin_cover", "cover", "dynamic_cover")
                         .flatMap { urls(video?.opt(it)) }.firstOrNull(MediaUrls::isAllowed).orEmpty(),
+                    mediaSources = mediaSources,
                 )
             } finally {
                 connection.disconnect()
@@ -190,8 +199,51 @@ class PublicVideoApi {
         }
     }
 
-    private fun imageUrls(image: JSONObject): List<String> = listOf("download_url", "download_addr",
-        "download_url_list", "url_list", "display_image").flatMap { urls(image.opt(it)) }.distinct().take(64)
+    private fun displayImageUrls(image: JSONObject): List<String> = listOf("url_list", "display_image")
+        .flatMap { urls(image.opt(it)) }
+
+    private fun downloadImageUrls(image: JSONObject): List<String> = listOf("download_url", "download_addr",
+        "download_url_list").flatMap { urls(image.opt(it)) }
+
+    private fun imageAlternates(work: JSONObject): Map<String, List<JSONObject>> {
+        val gears = work.optJSONArray("img_bitrate") ?: return emptyMap()
+        val images = mutableMapOf<String, MutableList<JSONObject>>()
+        for (gearIndex in 0 until minOf(gears.length(), 16)) {
+            val variants = gears.optJSONObject(gearIndex)?.optJSONArray("images") ?: continue
+            for (imageIndex in 0 until minOf(variants.length(), 200)) {
+                val image = variants.optJSONObject(imageIndex) ?: continue
+                val uri = (image.opt("uri") as? String)?.takeIf { it.isNotBlank() && it.length <= 2048 } ?: continue
+                val matching = images.getOrPut(uri) { mutableListOf() }
+                if (matching.size < 16) matching += image
+            }
+        }
+        return images
+    }
+
+    private fun addressUrls(value: Any?): List<String> = (urls(value) + if (value is JSONObject)
+        listOf(value.optString("uri"), value.optString("url")) else emptyList())
+        .filter { it.isNotBlank() && it.length <= 32_768 && it.startsWith("https://", true) }
+        .distinct().take(64)
+
+    private fun videoRates(video: JSONObject): List<JSONObject> = listOf("bit_rate", "bitrate").flatMap { key ->
+        val rates = video.optJSONArray(key)
+        (0 until minOf(rates?.length() ?: 0, 16)).mapNotNull { rates?.optJSONObject(it) }
+    }.take(16)
+
+    private fun codecAddresses(video: JSONObject, prefix: String): List<Any?> = listOf(prefix, "${prefix}_h264",
+        "${prefix}_265", "${prefix}_h265", "${prefix}_bytevc1", "${prefix}_bytevc2").map { video.opt(it) }
+
+    private fun videoPlayAddresses(video: JSONObject) = (listOf(video) + videoRates(video))
+        .flatMap { codecAddresses(it, "play_addr") }
+
+    private fun videoPlayUrls(video: JSONObject) = videoPlayAddresses(video).flatMap(::addressUrls).distinct().take(64)
+
+    private fun videoDownloadUrls(video: JSONObject) = (listOf(video) + videoRates(video))
+        .flatMap { codecAddresses(it, "download_addr") }.flatMap(::addressUrls).distinct().take(64)
+
+    private fun videoMediaIds(video: JSONObject): List<String> = ((listOf(video.opt("video_id")) +
+        videoPlayAddresses(video).map { (it as? JSONObject)?.opt("uri") }).filterIsInstance<String>())
+        .filter { it.matches(Regex("[A-Za-z0-9_-]{10,256}")) && it.any(Char::isLetter) }.distinct().take(16)
 
     private fun urls(value: Any?): List<String> = when (value) {
         is String -> listOf(value)

@@ -42,7 +42,7 @@ internal fun HistoryScreen(model: SaverViewModel) {
         item { PageHeading("下载记录", "共 ${model.history.size} 个作品 · 文件与记录可以分别管理") }
         if (model.busy) item { OngoingTask(model) }
         item { SectionCard {
-            OutlinedTextField(query, { query = it.take(200) }, label = { Text("搜索标题、文件名或作品编号") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(query, { query = it.take(200) }, label = { Text("搜索标题、文件名或作品编号") }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("最新", "最早", "标题", "大小").forEachIndexed { index, label -> FilterChip(sort == index, { sort = index }, label = { Text(label) }) }
             }
@@ -77,7 +77,8 @@ internal fun HistoryScreen(model: SaverViewModel) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(saved.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                     Text("${megabytes(saved.bytes)} MB · ${savedTime(saved.savedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if (saved.mimeType.startsWith("image/")) "图集 · ${saved.uris.size} 张" else if (saved.isAlbum) "图集合成视频" else "视频",
+                    val typeLabel = if (saved.mimeType.startsWith("image/")) "图集 · ${saved.uris.size} 张" else if (saved.isAlbum) "图集合成视频" else "视频"
+                    Text(typeLabel,
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
             }

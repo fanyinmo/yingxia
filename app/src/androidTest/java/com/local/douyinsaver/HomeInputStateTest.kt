@@ -34,13 +34,14 @@ class HomeInputStateTest {
             assertEquals("新的分享文案 $secondSource", engine.input)
             assertEquals(previousGeneration + 1, engine.generation)
             assertFreshInput(engine)
-            assertEquals(QueueStatus.CANCELLED, engine.queue.first().status)
+            assertEquals(QueueStatus.READY, engine.queue.first().status)
+            assertEquals(parsed, engine.queueResults[current.key])
             assertEquals(waiting, engine.queue[1])
             assertEquals(completed, engine.queue[2])
             assertEquals(listOf(saved), engine.history)
         }
         assertEquals(listOf(saved), records.history())
-        assertEquals(QueueStatus.CANCELLED, records.queue().first().status)
+        assertEquals(QueueStatus.FAILED, records.queue().first().status)
     }
 
     @Test fun clearingPersistsAnEmptyInputAndStaleParserCallbacksCannotRestoreTheOldResult() = isolated { engine, records, prefix, saved ->
@@ -104,7 +105,7 @@ class HomeInputStateTest {
         assertEquals(listOf(saved), records.history())
     }
 
-    @Test fun resolvingAgainRetiresThePreviousReadyQueueBindingWithoutAddingAnotherRow() = isolated { engine, records, _, saved ->
+    @Test fun resolvingAgainPreservesThePreviousIndependentQueueResultWithoutAddingAnotherRow() = isolated { engine, records, _, saved ->
         val current = QueueTask("current", firstSource, status = QueueStatus.READY)
         val waiting = QueueTask("waiting", secondSource)
         main {
@@ -112,7 +113,8 @@ class HomeInputStateTest {
             ready(engine, records, saved, listOf(current, waiting), current.key)
             engine.resolve()
             assertEquals(2, engine.queue.size)
-            assertEquals(QueueStatus.CANCELLED, engine.queue.first().status)
+            assertEquals(QueueStatus.READY, engine.queue.first().status)
+            assertEquals(parsed, engine.queueResults[current.key])
             assertEquals(waiting, engine.queue.last())
             assertNull(field(engine, "activeTaskKey"))
             assertNull(engine.video)
@@ -146,21 +148,24 @@ class HomeInputStateTest {
         assertEquals(secondSource, records.queue().single().source)
     }
 
-    @Test fun startingBatchQueueDoesNotDownloadOrReplaceAnUnqueuedReadyResult() = isolated { engine, records, _, saved ->
+    @Test fun startingBatchQueueKeepsTheSingleInputAndRestoresItsReadyResult() = isolated { engine, records, _, saved ->
         main {
             engine.updateInput(firstSource)
             ready(engine, records, saved)
             state(engine, "duplicateCandidates", emptyList<SavedVideo>())
             engine.enqueueInput(secondSource)
             val generation = engine.generation
+            engine.queueParseOverride = { }
             engine.startQueue()
-            assertEquals("请先下载或清空当前作品，再开始队列", engine.message)
-            assertEquals(TaskStage.READY, engine.stage)
-            assertFalse(engine.busy)
-            assertEquals(false, field(engine, "queueRunning"))
-            assertNull(field(engine, "activeTaskKey"))
-            assertEquals(generation, engine.generation)
+            assertEquals(TaskStage.VERIFYING, engine.stage)
+            assertTrue(engine.busy)
+            assertTrue(engine.queueRunning)
+            assertEquals(engine.queue.single().key, field(engine, "activeTaskKey"))
+            assertEquals(generation + 1, engine.generation)
             assertEquals(firstSource, engine.input)
+            engine.stopQueue()
+            assertFalse(engine.queueRunning)
+            assertEquals(TaskStage.READY, engine.stage)
             assertEquals(parsed, engine.video)
             assertEquals(123L, engine.downloaded)
             assertEquals(456L, engine.total)
@@ -190,6 +195,8 @@ class HomeInputStateTest {
         state(engine, "downloaded", 123L)
         state(engine, "total", 456L)
         state(engine, "queue", tasks)
+        state(engine, "queueResults", activeKey?.let { mapOf(it to parsed) }.orEmpty())
+        state(engine, "selectedTaskKey", activeKey)
         field(engine, "activeTaskKey", activeKey)
         engine.fileName = "上一作品文件名"
         records.writeQueue(tasks)
@@ -199,7 +206,7 @@ class HomeInputStateTest {
         val prefix = "home_input_validation_${UUID.randomUUID()}_"
         val records = DownloadRecords(application, prefix)
         val saved = SavedVideo(parsed.id, "已完成记录", "content://com.local.douyinsaver.validation/completed/${UUID.randomUUID()}",
-            456, savedAt = 1234)
+            456, savedAt = 1234, watermarkMode = WatermarkMode.CLEAN)
         records.save(saved)
         var engine: SaverEngine? = null
         try {

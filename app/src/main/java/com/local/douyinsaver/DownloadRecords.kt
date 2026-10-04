@@ -13,7 +13,8 @@ class DownloadRecords(context: Context, namespace: String = "") {
         SavedVideo(obj.getString("id"), obj.getString("title"), uri, obj.getLong("bytes"),
             obj.optString("locationLabel", DownloadStorage.DEFAULT_LOCATION), obj.optLong("savedAt", 0),
             obj.optString("mimeType", "video/mp4"), strings(obj.optJSONArray("uris")).ifEmpty { listOf(uri) },
-            obj.optString("coverUri", ""), obj.optString("fileName", ""), obj.optBoolean("isAlbum"))
+            obj.optString("coverUri", ""), obj.optString("fileName", ""), obj.optBoolean("isAlbum"),
+            runCatching { WatermarkMode.valueOf(obj.optString("watermarkMode")) }.getOrNull())
     }
 
     @Synchronized fun save(saved: SavedVideo) = writeHistory((listOf(saved) + history()).distinctBy { it.uri })
@@ -22,7 +23,8 @@ class DownloadRecords(context: Context, namespace: String = "") {
         items.take(1000).forEach { saved -> array.put(JSONObject().put("id", saved.id).put("title", saved.title)
             .put("uri", saved.uri).put("bytes", saved.bytes).put("locationLabel", saved.locationLabel)
             .put("savedAt", saved.savedAt).put("mimeType", saved.mimeType).put("uris", JSONArray(saved.uris))
-            .put("coverUri", saved.coverUri).put("fileName", saved.fileName).put("isAlbum", saved.isAlbum)) }
+            .put("coverUri", saved.coverUri).put("fileName", saved.fileName).put("isAlbum", saved.isAlbum)
+            .put("watermarkMode", saved.watermarkMode?.name ?: JSONObject.NULL)) }
         check(completed.edit().putString("completed", array.toString()).commit()) { "文件已保存，但记录写入失败，请到下载目录查看" }
     }
 
@@ -33,9 +35,11 @@ class DownloadRecords(context: Context, namespace: String = "") {
     }
 
     fun writeQueue(items: List<QueueTask>) {
+        // Persist only the small task metadata. Signed media URLs and parsed source
+        // variants stay in SaverEngine memory and are explicitly re-parsed on restart.
         val array = JSONArray()
-        items.take(200).forEach { task -> array.put(JSONObject().put("key", task.key).put("source", task.source)
-            .put("title", task.title).put("status", task.status.name).put("message", task.message).put("createdAt", task.createdAt)) }
+        items.distinctBy { it.key }.take(200).forEach { task -> array.put(JSONObject().put("key", task.key).put("source", task.source)
+            .put("title", task.title.take(500)).put("status", task.status.name).put("message", task.message.take(500)).put("createdAt", task.createdAt)) }
         check(tasks.edit().putString("queue", array.toString()).commit()) { "任务队列未能保存，请检查手机可用空间" }
     }
 

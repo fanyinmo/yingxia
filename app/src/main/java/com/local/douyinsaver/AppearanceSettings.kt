@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
@@ -13,8 +15,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.LayoutDirection
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -34,7 +44,7 @@ fun AppearanceControls(store: AppearanceStore) {
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("外观", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text("所有调整即时预览，并在下次打开时保留。", style = MaterialTheme.typography.bodySmall,
+        Text("所有调整立即应用到整个页面，并在下次打开时保留。", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("明暗模式", style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -86,7 +96,7 @@ fun AppearanceControls(store: AppearanceStore) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BackgroundFit.entries.forEach { fit -> FilterChip(options.fit == fit, { store.update(options.copy(fit = fit)) }, label = { Text(fit.label) }) }
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (options.fit == BackgroundFit.FIT) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BackgroundPosition.entries.forEach { position -> FilterChip(options.position == position,
                     { store.update(options.copy(position = position)) }, label = { Text(position.label) }) }
             }
@@ -108,26 +118,40 @@ fun AppearanceControls(store: AppearanceStore) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (store.hasPreviousPanelStyle && !store.migrationNotice) TextButton(onClick = store::restorePreviousPanelStyle) { Text("恢复更新前板块样式") }
         }
-        Box(Modifier.fillMaxWidth().height(144.dp).clip(MaterialTheme.shapes.medium)) {
-            AppearanceBackdrop(store, Modifier.fillMaxSize())
-            Card(Modifier.align(Alignment.Center).padding(16.dp).fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = appearancePanelColor(), contentColor = MaterialTheme.colorScheme.onSurface)) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column { Text("效果预览", fontWeight = FontWeight.SemiBold); Text("你的下载空间", style = MaterialTheme.typography.bodySmall) }
-                    Button(onClick = {}, contentPadding = PaddingValues(horizontal = 14.dp)) { Text("主色") }
-                }
-            }
-        }
         TextButton(onClick = store::reset, enabled = !importing) { Text(if (options.backgroundRevision > 0) "恢复默认外观（保留背景图片）" else "恢复默认外观") }
     }
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun AppearanceSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, display: String, onValue: (Float) -> Unit) {
+    val accent = MaterialTheme.colorScheme.primary
+    val inactive = MaterialTheme.colorScheme.outlineVariant
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val interaction = remember { MutableInteractionSource() }
     Column {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, style = MaterialTheme.typography.bodySmall); Text(display, style = MaterialTheme.typography.bodySmall)
         }
-        Slider(value, onValueChange = onValue, valueRange = range)
+        // Customize the visuals, keeping Material's full touch, keyboard and accessibility behavior.
+        Slider(value, onValueChange = onValue, valueRange = range, interactionSource = interaction,
+            modifier = Modifier.semantics(mergeDescendants = true) {
+                contentDescription = label
+                stateDescription = display
+            }.fillMaxWidth().heightIn(min = 48.dp), thumb = {
+                // Material measures its input surface from this slot; keep it tall while drawing a small circle.
+                Box(Modifier.width(16.dp).height(48.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(16.dp).shadow(1.dp, CircleShape).background(accent, CircleShape))
+                }
+            }, track = { state ->
+                Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+                    val fraction = ((state.value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+                    val y = size.height / 2f
+                    val start = if (rtl) size.width else 0f
+                    val end = if (rtl) 0f else size.width
+                    drawLine(inactive, Offset(start, y), Offset(end, y), 4.dp.toPx(), StrokeCap.Round)
+                    drawLine(accent, Offset(start, y), Offset(start + (end - start) * fraction, y), 4.dp.toPx(), StrokeCap.Round)
+                }
+            })
     }
 }

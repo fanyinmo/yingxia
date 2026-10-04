@@ -268,7 +268,7 @@ fun AppearanceBackdrop(store: AppearanceStore, modifier: Modifier = Modifier) {
         bitmap?.let { image ->
             Image(image.asImageBitmap(), null, Modifier.fillMaxSize(),
                 contentScale = if (options.fit == BackgroundFit.CROP) ContentScale.Crop else ContentScale.Fit,
-                alignment = when (options.position) {
+                alignment = if (options.fit == BackgroundFit.CROP) Alignment.Center else when (options.position) {
                     BackgroundPosition.TOP -> Alignment.TopCenter
                     BackgroundPosition.CENTER -> Alignment.Center
                     BackgroundPosition.BOTTOM -> Alignment.BottomCenter
