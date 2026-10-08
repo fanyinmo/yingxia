@@ -4,7 +4,7 @@
 
 当前正式版为 **1.2.0 / code 42**，本地安装包与源码位于 `outputs/latest/`，采用用户确认的 rc21 功能。本轮模拟器实际结果及限制见 [电脑验证](testing/EMULATOR_RC21.md) 和 [最新版说明](CURRENT_VERSION.md)。
 
-当前正式构建为影匣 **1.1.0**、`versionCode 20`。用户已确认候选 **1.1.0-rc3 / code 19** 手机测试正常，正式包采用递增版本配置重新构建与校验，不能把候选包改文件名当正式包，也不把候选手机反馈当作正式 APK 的手机测试。首版基线为 **1.0.0 / code 10**；相对变更见 [CHANGELOG](CHANGELOG.md)。
+当前正式构建为影匣 **1.2.0 / versionCode 42**，采用用户已确认的 rc21 功能，正式包单独构建并校验版本、签名与摘要。首版基线为 **1.0.0 / code 10**，第二版为 **1.1.0 / code 20**；相对变更见 [CHANGELOG](CHANGELOG.md)。
 
 环境为 JDK 17、Gradle 8.13、AGP 8.13.2、Kotlin 2.2.21、compile/target SDK 35、min SDK 29。图标与默认主题使用天蓝色。
 
@@ -82,7 +82,7 @@ JUnit 返回 `OK` 只表明探针执行完成；实际成功必须核对本次 `
 ### 验证资源保存与实际 App 操作
 
 
-真实作品的 `AlbumMotionAppPipelineTest` 需显式 `run_album_motion_app=true`、准确 `id` 与 `shareUrl`，`mode` 或 `export_mode` 可为 `LIVE_PHOTOS`、`MOTION_VIDEOS`、`GIF`；`batch=true` 检查批量卡片。可选的 `seed_cover_from_desktop=true` 仅为移动页被拒设备建立测试卡片，报告保留 `DESKTOP_COVER_TEST_SETUP`，不得计为初始移动解析成功。
+真实作品的 `AlbumMotionAppPipelineTest` 需显式 `run_album_motion_app=true`、准确 `id` 与 `shareUrl`，`mode` 或 `export_mode` 可为 `MOTION_VIDEOS` 或 `GIF`（实况照片导出已移除）；`batch=true` 检查批量卡片。可选的 `seed_cover_from_desktop=true` 仅为移动页被拒设备建立测试卡片，报告保留 `DESKTOP_COVER_TEST_SETUP`，不得计为初始移动解析成功。
 
 
 ## 实现与签名
@@ -149,7 +149,7 @@ Windows 中文目录使用 `android.overridePathCheck=true`。Java 17 测试启�
 
 本机 `local.properties`、签名密钥和正在使用的状态备份继续保留在本机；个人诊断、手机备份、截图、下载样本、旧 APK 与构建缓存不进入 Git。正式普通 APK 通过 Releases 分发。完成验证并保留新 APK 与最新证据后，才清理旧产物；有价值的故障报告可归档到工程外。详细发布步骤见 [发布与维护](GITHUB.md)。
 
-已发布的 1.1.0 曾取得用户的候选手机验证确认与上传授权，正式配置为 `versionName 1.1.0 / versionCode 20`，正式包通过 `v1.1.0` Release 分发。当前开发候选为 1.2.0-rc21，电脑模拟器复测已完成本轮登记项目，完整手机验收仍待完成，尚不推送 GitHub。发布前核对包版本、签名与 SHA-256，发布后核验仓库页面和附件；历次候选、正式包及手机反馈分别列入 [验证记录](VALIDATION.md)。
+当前正式版 **1.2.0 / versionCode 42** 已按用户确认的 rc21 功能发布至 GitHub，通过 `v1.2.0` Release 分发。发布前已核对版本、原签名与 SHA-256，发布后已核验标签及 APK 附件摘要。本轮没有重跑全量测试；历史候选模拟器结果与界面测试限制仍如实保留，不等同于正式包手机全量验收。历次记录见 [验证记录](VALIDATION.md) 与 [正式包校验](testing/RELEASE_1_2_0.md)。
 
 ## 发布已确认的安装包
 
