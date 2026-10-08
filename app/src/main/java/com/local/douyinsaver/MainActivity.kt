@@ -123,6 +123,8 @@ private fun SaverScreen(model: SaverViewModel, appearance: AppearanceStore) {
             }
         }
     }
+    if (model.albumMotionVerificationVisible) AlbumMotionVerificationDialog(model)
+    DurationAdjustmentDialog(model)
     if (confirmDuplicate) AlertDialog(onDismissRequest = { confirmDuplicate = false }, title = { Text("此作品已经保存过") },
         text = { Text("可以打开已有文件，也可以再保存一份。新文件不会覆盖已有文件。") },
         confirmButton = { TextButton(onClick = { confirmDuplicate = false; launchDownload(true) }) { Text("再保存一份") } },
@@ -173,7 +175,7 @@ internal fun readClipboard(context: Context): String? {
 }
 
 internal fun openSaved(context: Context, saved: SavedVideo) {
-    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(saved.uri.toUri(), saved.mimeType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(saved.uri.toUri(), saved.mimeTypeFor(saved.uri)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)) }
         .onFailure { Toast.makeText(context, "无法打开文件，可能已移动或删除，请刷新记录后重试", Toast.LENGTH_LONG).show() }
 }
 

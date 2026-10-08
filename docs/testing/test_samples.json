@@ -1,0 +1,520 @@
+{
+  "samples": [
+    {
+      "id": "S01",
+      "title": "AD巴德符文大乱斗",
+      "author": "作者待复核",
+      "url": "https://v.douyin.com/LzlS1beUkTI/",
+      "workId": "",
+      "type": "普通视频候选",
+      "notes": "早期基础视频回归；本轮可用性待复核",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S02",
+      "title": "如何拼出霸王龙化石",
+      "author": "作者待复核",
+      "url": "https://v.douyin.com/8xpDGS8FC-s/",
+      "workId": "",
+      "type": "普通视频候选",
+      "notes": "游戏视频；早期基础回归",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S03",
+      "title": "牢笼鬼魂深度解说",
+      "author": "作者待复核",
+      "url": "https://v.douyin.com/sb56S64iMtY/",
+      "workId": "",
+      "type": "长视频候选",
+      "notes": "先短片段 GIF，再完整范围及取消；不先进行巨大导出",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S04",
+      "title": "克里斯金发背头",
+      "author": "作者待复核",
+      "url": "https://v.douyin.com/IB-V1HXL_lo/",
+      "workId": "",
+      "type": "普通视频候选",
+      "notes": "动画视频；标题不是媒体格式判据",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S05",
+      "title": "呜菲比啾比",
+      "author": "虾饺shrimp",
+      "url": "https://v.douyin.com/U8X2ulGsS_c/",
+      "workId": "7689301063664454962",
+      "type": "普通视频",
+      "notes": "原截图短链复录；早期 aweme.snssdk 域名错误回归",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S06",
+      "title": "新射手装备实测",
+      "author": "dqcc 手游大乱斗",
+      "url": "https://v.douyin.com/i1Gy9OET0xA/",
+      "workId": "",
+      "type": "普通视频候选",
+      "notes": "来自截图，O 与 0 必须以官方打开结果核对；曾静默解析失败",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S07",
+      "title": "shy哥对不起我不应该对LPL这么严厉",
+      "author": "Kylix.",
+      "url": "https://v.douyin.com/aAvtq2_EGUA/",
+      "workId": "",
+      "type": "图文与 BGM 候选",
+      "notes": "用户曾反馈网页 BGM 漏读；实际项数和各项类型待核对",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S08",
+      "title": "doro知道错了求求你不要扣分了",
+      "author": "胖墩小咕嘎",
+      "url": "https://v.douyin.com/VncvKAmgH24/",
+      "workId": "7692292719339253135",
+      "type": "普通视频候选",
+      "notes": "曾无水印源失败和 HTTP403；失败继续与备用源回归；保留此前真实失败记录，失效后不继续测试",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "2026-10-08 用户确认链接失效，本轮不再用于可下载验收"
+    },
+    {
+      "id": "S09",
+      "title": "还是小猫好玩",
+      "author": "就叫摩托",
+      "url": "https://v.douyin.com/u376iP9c65I/",
+      "workId": "",
+      "type": "普通视频候选",
+      "notes": "用户五条批量样本之一",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S10",
+      "title": "快递里的中国武汉大学",
+      "author": "老猫鱼",
+      "url": "https://v.douyin.com/OCVplycYIMk/",
+      "workId": "",
+      "type": "普通视频候选",
+      "notes": "用户五条批量样本之一",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S11",
+      "title": "穷的连下脚的地都没有了",
+      "author": "Jave",
+      "url": "https://v.douyin.com/LdEpDnmV_Xc/",
+      "workId": "",
+      "type": "普通视频候选",
+      "notes": "用户五条批量样本之一",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S12",
+      "title": "没出息的菲比",
+      "author": "浦东的佞",
+      "url": "https://v.douyin.com/P0MeQufnY90/",
+      "workId": "",
+      "type": "普通视频候选",
+      "notes": "用户五条批量样本之一",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S13",
+      "title": "维持生命体征",
+      "author": "地球npc维持生命体征",
+      "url": "https://v.douyin.com/o5O8E3eNG3c/",
+      "workId": "7692429893640009190",
+      "type": "普通竖视频",
+      "notes": "历史 bdcgslb 二次重定向回归",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S14",
+      "title": "中文说唱最高的山跟风超人",
+      "author": "物流六班柯添翊",
+      "url": "https://v.douyin.com/35496uFAWls/",
+      "workId": "7692342361661597922",
+      "type": "静态图文与 BGM",
+      "notes": "历史日志曾只有一张图片；不能当作多图覆盖",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S15",
+      "title": "双子星登场",
+      "author": "明天见.",
+      "url": "https://v.douyin.com/JRiVCsVTlI0/",
+      "workId": "7685772229787700580",
+      "type": "未知动态 DYNAMIC",
+      "notes": "rc5 桌面 self clipType5；单项动态，不能登记为已知 LIVE",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S16",
+      "title": "马达加斯加企鹅",
+      "author": "超人man.",
+      "url": "https://v.douyin.com/fQVnnwy_67U/",
+      "workId": "7483745350491049276",
+      "type": "普通横视频",
+      "notes": "动态图壁纸题材，实际普通视频；视频转 GIF 真实链路基线",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S17",
+      "title": "苹果动态循环",
+      "author": "塑树",
+      "url": "https://v.douyin.com/yrMPfayck_I/",
+      "workId": "7648537782562529274",
+      "type": "未知动态 DYNAMIC",
+      "notes": "rc5 单项动态；方形短片；批量 GIF 基线",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S18",
+      "title": "命数如织当为磐石",
+      "author": "illness",
+      "url": "https://v.douyin.com/FkbHMHevLeg/",
+      "workId": "7689306999973377371",
+      "type": "未知动态 DYNAMIC",
+      "notes": "rc5 单项动态；高分辨率封面与短片不同；质量对照",
+      "origin": "本对话原分享链接",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S19",
+      "title": "莎莎今天一定要让斐斐说句话",
+      "author": "作者待复核",
+      "url": "https://www.douyin.com/video/7685749107952061747",
+      "workId": "7685749107952061747",
+      "type": "普通横视频",
+      "notes": "日志仅有作品 ID，未提供原短链；真实 HTTPS 数字冷 CDN 58001 回归",
+      "origin": "依据诊断作品ID恢复并用于rc5验证的官方长链",
+      "phoneStatus": "未执行",
+      "availability": "待本轮真机复核"
+    },
+    {
+      "id": "S20",
+      "title": "这就是Live的意义 LivePhoto就是动态的时间",
+      "author": "志明与",
+      "url": "https://www.douyin.com/note/7296031688621182243",
+      "workId": "7296031688621182243",
+      "type": "实况与多图候选",
+      "notes": "2026-10-05 已登录官方网页核对标题作者及 4/10 页码；未在 App 解析，逐项 LIVE/动静分类仍待核对；复制短链未取得，以已打开官方长链登记",
+      "origin": "已登录官方抖音公开页面",
+      "phoneStatus": "未执行",
+      "availability": "网页已打开 App来源待验证"
+    },
+    {
+      "id": "S22",
+      "title": "猫咪恨透了你的6大表现",
+      "author": "以实际作品页面为准",
+      "url": "https://www.douyin.com/video/7690502952831010267",
+      "workId": "7690502952831010267",
+      "type": "普通视频",
+      "notes": "2026-10-08 rc19/code39 在官方 Android16/API36 AVD 无代理环境，普通界面解析、下载、记录及完整媒体核对通过；不能代替用户手机网络验收。rc17先前结果保留于原日志，未迁移成新版通过。",
+      "origin": "官方抖音公开检索页，替换失效视频样例",
+      "phoneStatus": "本轮手机未连接，未执行",
+      "availability": "模拟器当次可解析并下载"
+    },
+    {
+      "id": "S23",
+      "title": "本轮用户 DNS 失败作品，标题以实际页面为准",
+      "author": "以实际作品页面为准",
+      "url": "https://www.douyin.com/video/7693831622341313766",
+      "workId": "7693831622341313766",
+      "type": "普通视频",
+      "notes": "2026-10-08 rc19/code39 在官方 Android16/API36 AVD 无代理环境，普通界面解析、下载、记录及完整媒体核对通过；不能代替用户手机网络验收。rc17先前结果保留于原日志，未迁移成新版通过。",
+      "origin": "用户提供本轮诊断中的作品编号；使用同作品官方页面",
+      "phoneStatus": "本轮手机未连接，未执行",
+      "availability": "模拟器当次可解析并下载"
+    },
+    {
+      "id": "S24",
+      "title": "galgame版黑暗桃花源，乌有乡到底讲了什么内容？",
+      "author": "用户截图：爱吃折耳根的16",
+      "url": "https://www.douyin.com/video/7693828705596034314",
+      "workId": "7693828705596034314",
+      "type": "普通视频",
+      "origin": "用户手机失败诊断中的作品编号",
+      "notes": "rc20/code40官方AVD正常界面下载与媒体检查通过；独立测试网络条件。手机通用错误页及原短链接仍待复测，不推断永久失效。",
+      "phoneStatus": "用户提供失败日志，本包尚未真机确认"
+    }
+  ],
+  "gaps": [
+    {
+      "id": "G01",
+      "type": "原生多帧 GIF 图文",
+      "fixture": "F01",
+      "requirement": "原图片文件为真实 GIF，不是视频转 GIF",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G02",
+      "type": "原生动态 WebP 图文",
+      "fixture": "F02",
+      "requirement": "原文件包含 ANIM/ANMF 且实际帧变化",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G03",
+      "type": "原生 APNG 图文",
+      "fixture": "F03",
+      "requirement": "原 PNG 含动画控制和帧块",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G04",
+      "type": "已知 LIVE 的真实单图或实况图集",
+      "fixture": "F04",
+      "requirement": "官方逐项实况类型可证；S20 可用于候选核查，未确认前不能填已知LIVE",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G05",
+      "type": "已知 ANIMATED 的视频型动图",
+      "fixture": "F05",
+      "requirement": "官方逐图动画类型可证，不能用未知 clipType5 替代",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G06",
+      "type": "至少两张全静态图集",
+      "fixture": "F06",
+      "requirement": "序列GIF至少2张；排序和单项另选至少3张；BGM分项另需同作品可用音乐；S07/S20运行前核对",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G07",
+      "type": "静图和动图混合图集",
+      "fixture": "F07",
+      "requirement": "至少三项，逐项类型与原顺序可证明；BGM合成分项须同作品有音乐",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G08",
+      "type": "多张全动态图且原时长不同",
+      "fixture": "F08",
+      "requirement": "至少两项真正连续动态画面；求和只用同作品素材，合成另核对BGM",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G09",
+      "type": "已知实况和其他类型混合及四类型子场景",
+      "fixture": "F07/F09/F19",
+      "requirement": "一般混合与STATIC+ANIMATED+LIVE+DYNAMIC四类分别登记；F09三类不能代替四类；合成需BGM",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G10",
+      "type": "缺少可用 BGM 的真实图集",
+      "fixture": "F10",
+      "requirement": "无BGM与BGM下载失败分别记录",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G11",
+      "type": "实际登录或验证码门槛",
+      "fixture": "F15",
+      "requirement": "常驻登录按钮不算真实门槛；没有遇到记阻塞未触发",
+      "status": "待补或现场核对"
+    },
+    {
+      "id": "G12",
+      "type": "单张全静态图文",
+      "fixture": "F06",
+      "requirement": "优先复核S14当前项数，不用历史单项当本轮证据",
+      "status": "待补或现场核对"
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "F01",
+      "type": "受控原生 GIF",
+      "description": "真实多帧 GIF；含短延时、局部透明偏移、disposal 2/3 的变体。",
+      "source": "app/src/androidTest/assets/dynamic_album_test/two_frames.gif；AnimatedImageVideoConverterTest 运行时变体",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F02",
+      "type": "受控动态 WebP",
+      "description": "包含 ANIM/ANMF，真实红蓝帧与持续时间；用于字节保留、动画预览、转码。",
+      "source": "app/src/androidTest/assets/dynamic_album_test/two_frames.webp",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F03",
+      "type": "受控 APNG",
+      "description": "多帧 APNG 与分数延时/亚毫秒/零分子分母时轴变体。",
+      "source": "app/src/androidTest/assets/dynamic_album_test/two_frames.png；AnimatedImageVideoConverterTest 运行时变体",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F04",
+      "type": "受控已知 LIVE",
+      "description": "明确设置已知 LIVE 类型的 JPEG/PNG 封面与同项连续帧 MP4；含音轨的单 JPEG Motion Photo 输出验证。",
+      "source": "MotionPhotoExporterTest；GalleryExportPipelineTest；AlbumCompositionTest 运行时生成",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F05",
+      "type": "受控已知视频型 ANIMATED",
+      "description": "明确已知动图类型的逐项视频，源有音轨，输出需无声重封装视频轨。",
+      "source": "GalleryExportPipelineTest#animatedMp4SaveIsSilentAndPreservesEncodedVideoFramesSizeAndTiming",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F06",
+      "type": "受控静态单图和多图",
+      "description": "顺序可识别的红蓝静图，单项不生成假动画，至少两项 0.1 秒序列 GIF。",
+      "source": "app/src/androidTest/assets/album_test/first_red.png；second_blue.png；AlbumGifComposerTest",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F07",
+      "type": "受控静图和动态图混合",
+      "description": "按固定原索引混合静图、实况、原生 GIF/视频动图；单项保存不能请求邻居。",
+      "source": "GalleryExportPipelineTest#mixedSaveKeepsStaticLiveAnimatedOrderAndSingleItemDoesNotFetchNeighbors；GalleryControlsUiTest",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F08",
+      "type": "受控全动态多项",
+      "description": "至少两个真实动态片段，原时长不同，用于各自保存、不同原时长相加和单项编号。",
+      "source": "GalleryExportPipelineTest/AlbumMotionEngineTest 受控数据组合；必要时测试组件内生成，不作为公开作品",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F09",
+      "type": "受控已知与未知动态混合",
+      "description": "DYNAMIC + LIVE + ANIMATED，相同保存选择只能重分类未知项。",
+      "source": "GalleryExportPipelineTest#explicitUnknownFormatChoicesNeverReclassifyKnownLiveOrAnimatedNeighbors",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F10",
+      "type": "受控无 BGM 或损坏 BGM",
+      "description": "同图有真实素材但无 BGM/坏音频/网络失败，不能以推荐声音代替，不妨碍素材保存。",
+      "source": "QueueEngineTest；AlbumMotionEngineTest；受控网络响应",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F11",
+      "type": "受控普通视频与 GIF 范围",
+      "description": "0.1 秒、旋转、短片和超过 15 秒的真实连续帧视频；生成与测试阶段取消。",
+      "source": "VideoGifConverterTest；GifDownloadPipelineTest 运行时生成",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F12",
+      "type": "受控无效动态和容器",
+      "description": "已知 LIVE 无动态、ANIMATED 返回单帧封面、损坏 MP4/只有音频/单编码样本、错误 XMP 偏移或冲突元数据。",
+      "source": "MotionPhotoExporterTest；VideoGifConverterTest；GalleryExportPipelineTest；GifDownloadPipelineTest",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F13",
+      "type": "受控同图片质候选",
+      "description": "同一准确图片身份的不同宽高、帧率、码率候选和失效首候选，不能跨图串源。",
+      "source": "DesktopMotionDisplaySourcesTest；DynamicAlbumSourceTest；官方桌面解析 JS 测试",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F14",
+      "type": "受控限额与异常输入",
+      "description": "模拟超过项数、长度声明/累计大小/动态时长/合成15分钟，避免真实填满或破坏用户手机。",
+      "source": "AlbumMediaPolicyTest；AlbumTimingTest；MediaTransferTest；隔离测试网络",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F15",
+      "type": "受控页面和图片身份",
+      "description": "同作品重排、错误作品、推荐视频、全局BGM、验证门槛、旧nonce/超时/取消回调。",
+      "source": "AlbumMotionEngineTest；DesktopAlbumResolverLifecycleTest；官方页面提取脚本测试",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F16",
+      "type": "受控 CLEAN 网络与冷 CDN",
+      "description": "HTTPS跳转、数字58001端口、Range/ETag/If-Range、断流、候选回退、变源拒绝。",
+      "source": "ColdCdnPipelineTest；MediaTransferTest；VideoSourceFallbackTest",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F17",
+      "type": "受控记录和发布异常",
+      "description": "独立偏好命名空间中的旧侧车、缺时长签名、同作品不同格式、文件缺失、成功发布后记录回调失败。",
+      "source": "DynamicAlbumRecordsTest；QueueEngineTest；GifDownloadPipelineTest",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F18",
+      "type": "受控失效链接和断网",
+      "description": "不伪造真实作品已失效。用隔离网络错误，真实不可公开作品需记录当次实际返回。",
+      "source": "受控测试响应及本轮现场条件",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false
+    },
+    {
+      "id": "F19",
+      "type": "待组合的同作品四类型混合",
+      "description": "隔离测试侧已组合同作品STATIC+ANIMATED+LIVE+DYNAMIC四项与自身BGM；用于逐项隔离、默认格式保持与完整动态合成，不代替真实平台分类来源。",
+      "source": "FourKindAlbumPipelineTest#fourSourceKindsKeepIdentityKnownDefaultsAndEverySingleItemIsIsolated；#fourSourceKindsComposeTheirActualFramesAndSameWorkBgmInOriginalOrder",
+      "publicShareUrl": null,
+      "realPlatformSampleVerified": false,
+      "prepared": true
+    }
+  ]
+}

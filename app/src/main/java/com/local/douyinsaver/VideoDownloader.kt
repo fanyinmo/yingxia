@@ -10,15 +10,17 @@ import java.net.HttpURLConnection
 import java.io.DataInputStream
 import java.io.EOFException
 import java.io.IOException
+import java.io.File
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
 class VideoDownloader(private val context: Context) {
+    private val rangedTransfer = VideoRangeTransfer()
     @Volatile private var activeConnection: HttpURLConnection? = null
     @Volatile private var cancelled = false
 
-    fun cancel() { cancelled = true; activeConnection?.disconnect() }
+    fun cancel() { cancelled = true; activeConnection?.disconnect(); rangedTransfer.cancel() }
 
     suspend fun download(
         video: ParsedVideo,
@@ -61,6 +63,20 @@ class VideoDownloader(private val context: Context) {
             for (redirect in 0..6) {
                 ensureNotCancelled()
                 val uri = WatermarkSources.requireSelectedUrl(url, options.watermarkMode, video.mediaSources)
+                if (VideoRangeTransfer.supports(url)) {
+                    val original = File.createTempFile("video_range_", ".mp4", context.cacheDir)
+                    try {
+                        try {
+                            val bytes = rangedTransfer.fetch(url, original, MAX_BYTES,
+                                validateUrl = { WatermarkSources.requireSelectedUrl(it, options.watermarkMode, video.mediaSources) },
+                                onProgress = onProgress, onDiagnostic = onDiagnostic)
+                            sourceValidated = true
+                            return publishOriginalFile(original, bytes, video, folder, options, onSaving, onSaved)
+                        } catch (_: RangeIdentityUnavailableException) {
+                            onDiagnostic("video_range_unavailable reason=missing_strong_validator fallback=full_get")
+                        }
+                    } finally { original.delete() }
+                }
                 connection = uri.toURL().openConnection() as HttpURLConnection
                 activeConnection = connection
                 connection.instanceFollowRedirects = false
@@ -155,6 +171,46 @@ class VideoDownloader(private val context: Context) {
                 throw IllegalStateException("无法清理未完成的视频文件，请检查保存目录后重试", error)
             }
         }
+    }
+
+    private suspend fun publishOriginalFile(file: File, bytes: Long, video: ParsedVideo,
+                                           folder: DownloadFolder?, options: DownloadOptions,
+                                           onSaving: suspend () -> Unit,
+                                           onSaved: (SavedVideo) -> Unit): SavedVideo {
+        file.inputStream().use { input ->
+            val header = ByteArray(32)
+            DataInputStream(input).readFully(header)
+            require(String(header, 4, 4, Charsets.US_ASCII) == "ftyp") { "收到的文件不是支持的 MP4 视频" }
+        }
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(file.absolutePath)
+            require((retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0) > 0) { "下载文件中没有有效视频轨道" }
+            require((retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L) > 0) { "视频时长无效，请重试" }
+        } finally { retriever.release() }
+        ensureNotCancelled()
+        onSaving()
+        val name = FileNames.build(video, options, "mp4")
+        val pending = DownloadStorage(context).createPending(name, folder)
+        try {
+            context.contentResolver.openOutputStream(pending.uri, "w")?.use { output ->
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(128 * 1024)
+                    while (true) {
+                        ensureNotCancelled()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                    }
+                }
+                output.flush()
+            } ?: error("无法写入视频文件，请检查可用空间")
+            ensureNotCancelled()
+            val published = pending.publish()
+            return SavedVideo(video.id, video.title, published.toString(), bytes, pending.locationLabel,
+                fileName = name, watermarkMode = WatermarkSources.actualMode(video, options.watermarkMode))
+                .also(onSaved)
+        } finally { pending.cleanup() }
     }
 
     private suspend fun ensureNotCancelled() {

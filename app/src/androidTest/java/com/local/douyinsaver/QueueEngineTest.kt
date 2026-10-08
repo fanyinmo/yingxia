@@ -44,6 +44,35 @@ class QueueEngineTest {
             listOf("https://sf11-cdn-tos.douyinstatic.com/queue_album_music_$index.mp3"), 25.0))
     }
 
+    @Test fun explicitBatchFormatAppliesOnlyToUnknownDynamicAndPreservesNeighborDefaults() = isolated { engine, _, original ->
+        val motionUrl = "https://v3.douyinvod.com/queue_unknown_motion.mp4"
+        fun dynamic(index: Int, kind: AlbumAssetKind) = fixture(index, album = true).let { content ->
+            content.copy(images = content.images.map { it.copy(kind = kind,
+                motion = ParsedMotion(motionUrl, mediaSources = listOf(MediaSource(motionUrl, WatermarkMode.CLEAN)))) })
+        }
+        val results = listOf(dynamic(1, AlbumAssetKind.DYNAMIC), fixture(2), dynamic(3, AlbumAssetKind.LIVE))
+        val savedOptions = Collections.synchronizedList(mutableListOf<Pair<String, AlbumMode>>())
+        main {
+            engine.queueParseOverride = { task -> complete(engine, results[links.indexOf(task.source)]) }
+            engine.queueSaveOverride = { content, options ->
+                savedOptions.add(content.id to options.albumMode)
+                SavedVideo(content.id, content.title, "content://com.local.douyinsaver.fixture/${UUID.randomUUID()}",
+                    42, watermarkMode = WatermarkMode.CLEAN, isAlbum = content.isAlbum)
+            }
+            engine.enqueueInput(links.joinToString("\n")); engine.startQueue()
+        }
+        await { !engine.queueRunning && engine.queueResults.size == 3 }
+        main { engine.downloadParsedQueue(mode = AlbumMode.MOTION_VIDEOS) }
+        await { !engine.batchSaving && engine.queue.all { it.status == QueueStatus.DONE } }
+        main {
+            assertEquals(listOf(results[0].id to AlbumMode.MOTION_VIDEOS, results[1].id to AlbumMode.IMAGES,
+                results[2].id to AlbumMode.IMAGES), savedOptions.toList())
+            assertEquals(AlbumAssetKind.DYNAMIC, engine.queueResults[engine.queue[0].key]!!.images.single().kind)
+            assertEquals(AlbumAssetKind.LIVE, engine.queueResults[engine.queue[2].key]!!.images.single().kind)
+            assertTrue(engine.history.contains(original))
+        }
+    }
+
     @Test fun singleDisplayOnlyAlbumBecomesReadyWithEveryImageAndItsMusic() = isolated { engine, records, original ->
         val album = displayOnlyAlbum(1, imageCount = 2)
         val preferences = application.getSharedPreferences("${field(engine, "namespace")}download_options", 0)
@@ -109,7 +138,7 @@ class QueueEngineTest {
             assertEquals(4, calls.distinct().size)
             assertEquals(listOf(QueueStatus.READY, QueueStatus.FAILED, QueueStatus.READY, QueueStatus.READY),
                 engine.queue.map { it.status })
-            assertTrue(engine.queue[1].message.contains("完整图片"))
+            assertTrue(engine.queue[1].message.contains("第 2 张图片"))
             assertEquals(setOf(engine.queue[0].key, engine.queue[2].key, engine.queue[3].key), engine.queueResults.keys)
             assertEquals(first, engine.queueResults[engine.queue[0].key])
             assertEquals(last, engine.queueResults[engine.queue[3].key])
@@ -160,6 +189,91 @@ class QueueEngineTest {
         }
         assertEquals(listOf(original), records.history())
         assertTrue(records.queue().all { it.status == QueueStatus.FAILED && it.message.contains("重新解析") })
+    }
+
+    /** Metadata/state regression only: no network, MediaStore row, or readable-file fixture. */
+    @Test fun automaticMixedDynamicQueueUsesCleanImagesAndKeepsLiveManifestForRepeatSaves() = isolated { engine, records, original ->
+        val still = fixture(1, album = true)
+        val animated = fixture(2, album = true).let { content ->
+            val url = "https://p3.douyinpic.com/queue_dynamic.gif"
+            content.copy(images = listOf(ParsedImage(url, 640, 480,
+                listOf(MediaSource(url, WatermarkMode.CLEAN)), AlbumAssetKind.ANIMATED, "image/gif")))
+        }
+        val live = fixture(3, album = true).let { content ->
+            val motionUrl = "https://v3-web.douyinvod.com/queue_live.mp4?wm=0"
+            content.copy(images = content.images.map { image -> image.copy(kind = AlbumAssetKind.LIVE,
+                motion = ParsedMotion(motionUrl, 640, 480, 2.4,
+                    listOf(MediaSource(motionUrl, WatermarkMode.CLEAN)))) })
+        }
+        val results = listOf(still, animated, live)
+        val coverUri = "content://com.local.douyinsaver.fixture/dynamic-old-cover"
+        val coverOnly = SavedVideo(live.id, live.title, coverUri, 42, mimeType = "image/jpeg",
+            isAlbum = true, watermarkMode = WatermarkMode.CLEAN,
+            albumAssets = listOf(SavedAlbumAsset(coverUri, "image/jpeg", AlbumAssetKind.STATIC)))
+        records.save(coverOnly)
+        val parseCalls = mutableListOf<String>()
+        val saves = Collections.synchronizedList(mutableListOf<Pair<String, DownloadOptions>>())
+        main {
+            engine.queueParseOverride = { task ->
+                parseCalls += task.key
+                val index = links.indexOf(task.source)
+                complete(engine, results[index], duplicates = if (index == 2) listOf(coverOnly) else emptyList())
+            }
+            engine.queueSaveOverride = { content, options ->
+                saves += content.id to options
+                val selected = WatermarkSources.select(content, options.watermarkMode)
+                val uri = "content://com.local.douyinsaver.fixture/dynamic-${content.id}"
+                val kind = selected.images.single().kind
+                val mime = if (kind == AlbumAssetKind.ANIMATED) "image/gif" else "image/jpeg"
+                SavedVideo(content.id, content.title, uri, 84, mimeType = mime,
+                    uris = listOf(uri),
+                    isAlbum = true, watermarkMode = options.watermarkMode,
+                    albumAssets = listOf(SavedAlbumAsset(uri, mime, kind,
+                        embeddedMotion = kind == AlbumAssetKind.LIVE, sourceIndex = 0)), albumSourceCount = 1)
+            }
+            engine.enqueueInput(links.joinToString("\n"))
+            engine.startQueue()
+            engine.startQueue()
+        }
+        await { !engine.queueRunning && engine.queueResults.size == 3 }
+        main {
+            assertEquals(3, parseCalls.size)
+            assertEquals(3, parseCalls.distinct().size)
+            assertTrue(saves.isEmpty())
+            assertTrue(engine.queue.all { it.status == QueueStatus.READY })
+            assertEquals(results, engine.queue.map { engine.queueResults[it.key] })
+            engine.viewTaskResult(engine.queue.last().key)
+            assertNull("An existing still cover must not suppress its missing live clip", engine.duplicate)
+            engine.albumMode = AlbumMode.VIDEO
+            engine.downloadParsedQueue()
+        }
+        await { !engine.batchSaving && engine.queue.all { it.status == QueueStatus.DONE } }
+        main {
+            assertEquals(results.map { it.id }, saves.map { it.first })
+            assertTrue(saves.all { it.second.albumMode == AlbumMode.IMAGES && it.second.watermarkMode == WatermarkMode.CLEAN })
+            assertTrue(engine.message.contains("已保存 3 项") && engine.message.contains("已跳过 0 项"))
+            val restored = records.history().single { it.id == live.id && it.uri != coverUri }
+            val asset = restored.albumAssets.single()
+            assertEquals(AlbumAssetKind.LIVE, asset.kind)
+            assertEquals(restored.uri, asset.uri)
+            assertTrue(asset.embeddedMotion)
+            assertTrue(asset.motionUri.isBlank())
+            assertEquals("image/jpeg", restored.mimeTypeFor(asset.uri))
+            assertEquals(1, restored.uris.size)
+            assertTrue(records.history().contains(coverOnly))
+            assertTrue(records.history().contains(original))
+            // Newly committed manifests enter every same-work duplicate cache without
+            // requesting provider access; this test deliberately owns metadata only.
+            engine.downloadParsedQueue()
+        }
+        await { !engine.batchSaving }
+        main {
+            assertEquals(3, saves.size)
+            assertEquals(3, parseCalls.size)
+            assertTrue(engine.message.contains("已保存 0 项") && engine.message.contains("已跳过 3 项"))
+            assertTrue(engine.queue.all { it.status == QueueStatus.DONE })
+            assertEquals(5, records.history().size)
+        }
     }
 
     @Test fun aFailedItemDoesNotStopLaterAlbumsAndCanBeRetriedIndividually() = isolated { engine, _, _ ->
@@ -784,7 +898,7 @@ class QueueEngineTest {
         main {
             assertEquals(listOf(QueueStatus.FAILED, QueueStatus.FAILED, QueueStatus.READY), engine.queue.map { it.status })
             assertEquals(setOf(engine.queue.last().key), engine.queueResults.keys)
-            assertTrue(engine.queue.first().message.contains("完整图片"))
+            assertTrue(engine.queue.first().message.contains("第 2 张图片"))
             assertFalse(engine.queue.any { it.message.contains("切换版本") })
             assertEquals(0, saves)
             assertNull(engine.video)

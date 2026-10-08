@@ -30,9 +30,10 @@ internal fun BatchQueueHeader(model: SaverViewModel, onAdd: () -> Unit) {
     val failed = model.queue.count { it.status == QueueStatus.FAILED || it.status == QueueStatus.CANCELLED }
     val idle = !model.busy && !model.queueRunning && !model.batchSaving
     val savable = model.queue.any { task ->
-        model.queueResults[task.key]?.let { WatermarkSources.available(it, WatermarkMode.CLEAN) } == true }
+        model.queueResults[task.key]?.let { WatermarkSources.availableForDownload(it, WatermarkMode.CLEAN) } == true }
+    val unknown = model.queue.any { task -> model.queueResults[task.key]?.let(AlbumActionUiPolicy::requiresFormatChoice) == true }
     LaunchedEffect(idle, model.queue.isEmpty()) {
-        if (!idle || model.queue.isEmpty()) clearConfirmation = false
+        if (!idle || model.queue.isEmpty()) { clearConfirmation = false }
     }
     SectionCard {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -62,10 +63,12 @@ internal fun BatchQueueHeader(model: SaverViewModel, onAdd: () -> Unit) {
                 else Glyph(GlyphKind.LINK, size = 18.dp)
                 Spacer(Modifier.width(7.dp)); Text(if (model.queueRunning) "暂停解析" else "解析全部")
             }
-            OutlinedButton(onClick = { model.downloadParsedQueue() }, enabled = idle && savable,
+            OutlinedButton(onClick = {
+                model.downloadParsedQueue(mode = if (unknown) AlbumMode.MOTION_VIDEOS else AlbumMode.IMAGES)
+            }, enabled = idle && savable,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text(if (model.batchSaving) "正在保存…" else "保存已解析") }
         }
-        Text("已有文件会自动跳过；批量保存时，图集保存为图片。",
+        Text("已有文件会自动跳过；图集按素材类型保存图片和动图。",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(if (idle) "长按手柄或点上下移调整待解析顺序；左右滑动可移除任务。"
             else "正在处理任务，排序暂时锁定。", style = MaterialTheme.typography.labelSmall,
@@ -96,6 +99,7 @@ internal fun BatchQueueHeader(model: SaverViewModel, onAdd: () -> Unit) {
                 modifier = Modifier.semantics { contentDescription = "确认清空全部任务" }) { Text("清空全部") }
         },
         dismissButton = { TextButton(onClick = { clearConfirmation = false }) { Text("取消") } })
+
 }
 
 @Composable
@@ -105,8 +109,16 @@ internal fun BatchQueueTaskCard(task: QueueTask, index: Int, count: Int, parsed:
                                drag: BatchQueueDragState, modifier: Modifier = Modifier,
                                onMove: (Int) -> Unit, onRemove: () -> Unit, onRetry: () -> Unit,
                                onPreview: (ParsedVideo) -> Unit, onSave: (AlbumMode) -> Unit,
-                               onHistory: () -> Unit) {
-    val selected = remember(parsed) { parsed?.let { runCatching { WatermarkSources.select(it, WatermarkMode.CLEAN) }.getOrNull() } }
+                               onHistory: () -> Unit, gifStartSeconds: Float = 0f, gifDurationSeconds: Float = 6f,
+                               onGifSettings: (Float, Float) -> Unit = { _, _ -> },
+                               itemDurationSeconds: Double? = null, staticSeconds: Double = 3.0,
+                               onItemDuration: (Double?) -> Unit = {},
+                               albumMotionState: AlbumMotionReadState = AlbumMotionReadState(),
+                               onSaveMotion: (AlbumMode) -> Unit = {}, onCancelMotion: () -> Unit = {},
+                               onVerifyMotion: () -> Unit = {}, onCheckMotion: () -> Unit = {},
+                               gifExportQuality: GifExportQuality = GifExportQuality.HIGH_QUALITY,
+                               onGifQuality: (GifExportQuality) -> Unit = {}) {
+    val selected = remember(parsed) { parsed?.let { runCatching { WatermarkSources.selectForDownload(it, WatermarkMode.CLEAN) }.getOrNull() } }
     val current = task.status == QueueStatus.PARSING || task.status == QueueStatus.RUNNING
     val readyToSave = selected != null && operationsEnabled
     SwipeRevealQueueTask(task.key, index, task.title, canRemove, modifier, onRemove) {
@@ -137,7 +149,7 @@ internal fun BatchQueueTaskCard(task: QueueTask, index: Int, count: Int, parsed:
             if (parsed == null) Text(task.source.removePrefix("https://"), maxLines = 2, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             else {
-                Text(if (parsed.isAlbum) "图集 · ${parsed.images.size} 张"
+                Text(if (parsed.isAlbum) albumContentLabel(parsed.images)
                     else "视频 · ${duration(parsed.durationSeconds)}",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (selected == null) Text("暂未读取到可下载地址，请重新解析。",
@@ -148,21 +160,28 @@ internal fun BatchQueueTaskCard(task: QueueTask, index: Int, count: Int, parsed:
                 color = if (task.status == QueueStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             if (parsed != null) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onPreview(parsed) }, enabled = selected != null,
+                    OutlinedButton(onClick = { onPreview(parsed) }, enabled = parsed.isAlbum || selected != null,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "预览任务 ${index + 1}" }) { Text("预览") }
-                    Button(onClick = { onSave(AlbumMode.IMAGES) }, enabled = readyToSave,
+                    if (!parsed.isAlbum) Button(onClick = { onSave(AlbumMode.IMAGES) }, enabled = readyToSave,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "保存任务 ${index + 1}" }) {
-                        Text(if (task.status == QueueStatus.DONE) "再次保存" else if (parsed.isAlbum) "保存图片" else "保存视频")
+                        Text(if (task.status == QueueStatus.DONE) "再次保存" else "保存视频")
                     }
                 }
                 if (task.status == QueueStatus.DONE) TextButton(onClick = onHistory,
                     modifier = Modifier.align(Alignment.End)) { Text("查看记录") }
                 if (parsed.isAlbum) {
-                    if (parsed.bgmUrl.isNotBlank()) OutlinedButton(onClick = { onSave(AlbumMode.VIDEO) },
-                        enabled = readyToSave, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("图片 + BGM 合成视频") }
-                    else Text("暂未读取到 BGM，仍可保存图片。", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    GalleryDownloadControls(selected ?: parsed, readyToSave, operationsEnabled, albumMotionState,
+                        onSave, onSaveMotion, onCancelMotion, onVerifyMotion, task.key,
+                        itemDurationSeconds, staticSeconds, onItemDuration,
+                        coverEnabled = operationsEnabled && AlbumActionUiPolicy.coversAvailable(parsed), onCheckMotion = onCheckMotion,
+                        gifExportQuality = gifExportQuality, onGifQuality = onGifQuality)
                 }
+                else if (GifClipUiPolicy.canOffer(parsed)) GifDownloadControls(selected ?: parsed, readyToSave,
+                    gifStartSeconds, gifDurationSeconds, quality = gifExportQuality, onQuality = onGifQuality,
+                    onSave = { start, length ->
+                        onGifSettings(start, length)
+                        onSave(AlbumMode.GIF)
+                    })
             }
             if (canReorder || task.status in listOf(QueueStatus.FAILED, QueueStatus.CANCELLED, QueueStatus.READY, QueueStatus.DONE)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
@@ -223,9 +242,11 @@ private fun SwipeRevealQueueTask(key: String, index: Int, title: String, enabled
 }
 
 @Composable
-internal fun BatchResultPreview(content: ParsedVideo, onDismiss: () -> Unit) {
+internal fun BatchResultPreview(content: ParsedVideo, onDismiss: () -> Unit, saveEnabled: Boolean = true,
+                                onSaveItem: ((Int, AlbumMode) -> Unit)? = null) {
     if (content.isAlbum) AlertDialog(onDismissRequest = onDismiss, title = { Text(content.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        text = { AlbumPreview(runCatching { WatermarkSources.select(content, WatermarkMode.CLEAN).images }.getOrDefault(emptyList())) },
+        text = { AlbumPreview(runCatching { WatermarkSources.selectForDownload(content, WatermarkMode.CLEAN).images }.getOrDefault(content.images),
+            content.title, content.id, saveEnabled = saveEnabled, onSaveItem = onSaveItem) },
         confirmButton = { TextButton(onClick = onDismiss) { Text("关闭预览") } })
     else VerifiedVideoPreviewDialog(content, onDismiss)
 }

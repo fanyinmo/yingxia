@@ -31,6 +31,27 @@ class AlbumCompositionTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
 
+    @Test fun cancelledCompositionKeepsCallerFilesAndRemovesOwnedIntermediates() = runBlocking(Dispatchers.IO) {
+        val directory = temporaryDirectory()
+        try {
+            val images = localImages(directory)
+            val audio = fixture("short_bgm.m4a", directory)
+            val previous = File(directory, "composed.mp4").apply { writeText("existing caller file") }
+            val frame = File(directory, "frame_0.jpg").apply { writeText("existing caller image") }
+            try {
+                AlbumVideoComposer(context).compose(images, audio, AlbumMediaValidation.audioDurationMs(audio),
+                    1, directory) { throw CancellationException("owned cancellation fixture") }
+                fail("Export ignored cancellation")
+            } catch (_: CancellationException) { }
+            assertEquals("existing caller file", previous.readText())
+            assertEquals("existing caller image", frame.readText())
+            assertTrue(directory.listFiles().orEmpty().none { it.name.startsWith("composition_") })
+            assertTrue(images.all { it.file.exists() })
+            assertTrue(audio.exists())
+        } finally { directory.deleteRecursively() }
+        Unit
+    }
+
     @Test fun composesOrderedImagesWithLoopingShortAudio() = runBlocking(Dispatchers.IO) {
         withTimeout(180_000L) {
             val directory = temporaryDirectory()
@@ -145,7 +166,11 @@ class AlbumCompositionTest {
         // Opt-in only after choosing this isolated test folder through the actual system picker.
         assumeTrue(InstrumentationRegistry.getArguments().getString("album_saf_test") == "true")
         val storage = DownloadStorage(context)
-        val folder = storage.loadFolder()
+        val testTree = InstrumentationRegistry.getArguments().getString("album_saf_tree_uri")
+        val folder = if (testTree == null) storage.loadFolder() else {
+            require(testTree == "content://com.android.externalstorage.documents/tree/primary%3AScreenshots%2FDouyinValidation030")
+            DownloadFolder(testTree, "手机存储/Screenshots/DouyinValidation030")
+        }
         assumeTrue(folder?.label?.endsWith("/Screenshots/DouyinValidation030") == true)
         storage.validateAccess(folder!!)
         val directory = temporaryDirectory()

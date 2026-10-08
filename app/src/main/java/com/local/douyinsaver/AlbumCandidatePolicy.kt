@@ -1,13 +1,27 @@
 package com.local.douyinsaver
 
-/** A static album must belong to the requested work and retain its complete image order. */
+/** An album must belong to the requested work and retain its complete image order. */
 object AlbumCandidatePolicy {
+    data class MotionCandidate(
+        val playUrls: List<String> = emptyList(),
+        val downloadUrls: List<String> = emptyList(),
+        val mediaIds: List<String> = emptyList(),
+        val width: Int = 0,
+        val height: Int = 0,
+        val durationSeconds: Double = 0.0,
+        val displayPlaybackUrls: List<String> = emptyList(),
+    )
+
     data class ImageCandidate(
         val urls: List<String>,
         val width: Int = 0,
         val height: Int = 0,
         val displayUrls: List<String> = emptyList(),
         val downloadUrls: List<String> = emptyList(),
+        val kind: AlbumAssetKind = AlbumAssetKind.STATIC,
+        val mimeType: String = "",
+        val motion: MotionCandidate? = null,
+        val imageKey: String = "",
     )
 
     fun ready(
@@ -28,7 +42,19 @@ object AlbumCandidatePolicy {
             val url = image.urls.firstOrNull { it.length <= 32_768 && MediaUrls.isAllowed(it) }
                 ?: sources.firstOrNull()?.url
                 ?: return null // Do not silently turn an incomplete album into a successful download.
-            ParsedImage(url, image.width.coerceIn(0, 32_768), image.height.coerceIn(0, 32_768), sources)
+            val motion = image.motion?.let { candidate ->
+                val videoSources = WatermarkSources.videoSources(candidate.playUrls, candidate.downloadUrls,
+                    mediaIds = candidate.mediaIds, displayPlaybackUrls = candidate.displayPlaybackUrls)
+                val videoUrl = videoSources.firstOrNull { it.mode == WatermarkMode.CLEAN }?.url
+                    ?: videoSources.firstOrNull()?.url
+                videoUrl?.let { ParsedMotion(it, candidate.width.coerceIn(0, 32_768),
+                    candidate.height.coerceIn(0, 32_768),
+                    candidate.durationSeconds.takeIf { value -> value.isFinite() && value in 0.0..18_000.0 } ?: 0.0,
+                    videoSources) }
+            }
+            ParsedImage(url, image.width.coerceIn(0, 32_768), image.height.coerceIn(0, 32_768), sources,
+                if (image.motion != null && image.kind == AlbumAssetKind.STATIC) AlbumAssetKind.DYNAMIC else image.kind,
+                image.mimeType.takeIf { it in IMAGE_MIME_TYPES }.orEmpty(), motion, image.imageKey.take(2048))
         }
         val music = bgmCandidates.asSequence().mapNotNull(::secureBgmUrl).firstOrNull().orEmpty()
         return ParsedVideo(
@@ -62,4 +88,5 @@ object AlbumCandidatePolicy {
 
     const val MAX_IMAGES = 100
     const val MUSIC_GRACE_MS = 6_000L
+    private val IMAGE_MIME_TYPES = setOf("image/jpeg", "image/png", "image/gif", "image/webp", "image/heif", "image/heic")
 }

@@ -1,0 +1,26 @@
+{
+  "purpose": "Controlled explicit BGM distinguishable from original 440 Hz live audio",
+  "generated": true,
+  "asset": "native_bgm_880hz_3s.m4a",
+  "bytes": 37872,
+  "sha256": "9562e23ecfdf8d124217db84fcd81d136bc3b8a986b42f0c7437c2b04f291378",
+  "frequencyHz": 880,
+  "sampleRate": 48000,
+  "durationSeconds": 3,
+  "generator": "scripts/generate_native_bgm_fixture.py",
+  "ffmpegArguments": [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-nostdin",
+    "-f",
+    "lavfi",
+    "-i",
+    "sine=frequency=880:sample_rate=48000:duration=3",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "96k",
+    "native_bgm_880hz_3s.m4a"
+  ]
+}

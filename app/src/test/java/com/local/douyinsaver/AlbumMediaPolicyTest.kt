@@ -42,4 +42,13 @@ class AlbumMediaPolicyTest {
         assertFalse(AlbumMediaPolicy.samplePresent(0, 0, 0))
         assertFalse(AlbumMediaPolicy.samplePresent(-1, -1, 250))
     }
+
+    @Test fun rejectsSilentStillCompositionAndBoundsLiveSidecars() {
+        AlbumMediaPolicy.requireStillComposition(false)
+        val error = assertThrows(IllegalArgumentException::class.java) { AlbumMediaPolicy.requireStillComposition(true) }
+        assertTrue(error.message.orEmpty().contains("保留动态"))
+        assertTrue(AlbumMediaPolicy.fitsBytes(128L * 1024 * 1024, AlbumMediaPolicy.MAX_MOTION_BYTES))
+        assertFalse(AlbumMediaPolicy.fitsBytes(AlbumMediaPolicy.MAX_MOTION_BYTES + 1, AlbumMediaPolicy.MAX_MOTION_BYTES))
+        assertEquals(60_000L, AlbumMediaPolicy.MAX_MOTION_DURATION_MS)
+    }
 }

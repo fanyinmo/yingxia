@@ -1,0 +1,224 @@
+{
+  "purpose": "Original full-size actual-frame covers for controlled LIVE inputs; Android final exports remain under test",
+  "generator": "scripts/generate_live_cover_fixtures.py",
+  "generatorSha256": "88bf9242a666d59f72b469fe411f61d6437bcf69a37e0198609ba5891dc11d69",
+  "timingReader": "Independent ISO BMFF stts/edit-list parser in generate_fixed_motion_fixture.py; no Android code",
+  "timingReaderSha256": "0e2fc207a0720ce5ece750d4ee80260c5a2eeec59306136cd67cc0c7208b48de",
+  "ffmpegVersion": "ffmpeg version 7.1-essentials_build-www.gyan.dev Copyright (c) 2000-2024 the FFmpeg developers",
+  "geometry": "1280x720 square pixels; original 960x720 color region and both 160-pixel black side bars retained",
+  "selection": "Actual sequential decoder frame indices, no resizing, no seek-to-nearest-frame, no generated replacement image",
+  "covers": [
+    {
+      "asset": "motion_test/fixed_red_blue_2s_cover_red_000.jpg",
+      "sizeBytes": 5864,
+      "sha256": "91f73e00045954cb2e2f690cec07c6aa9c8ace4a5344d43bf3a8f569f9f02537",
+      "sourceAsset": "motion_test/fixed_red_blue_2s.mp4",
+      "sourceSha256": "2bae70e8fc2718d3bab7f8271ea7e39f732e90ff92998481f703485a50a98b57",
+      "sourceFrameIndex": 0,
+      "presentationTimestampUs": 0,
+      "width": 1280,
+      "height": 720,
+      "color": "red",
+      "sourceDecodedRgbSha256": "286fa1b2884c1f3650bf40104a09954522b8af3c28404eaec9a2387b6cd8de1b",
+      "storedDecodedRgbSha256": "286fa1b2884c1f3650bf40104a09954522b8af3c28404eaec9a2387b6cd8de1b",
+      "rgbMeanSquaredError": 0.0,
+      "sourcePixelChecks": {
+        "center": [
+          220,
+          39,
+          39
+        ],
+        "leftBarMaxChannel": 0,
+        "rightBarMaxChannel": 0,
+        "centerLeftBoundary": [
+          0,
+          0,
+          0
+        ],
+        "centerRightBoundary": [
+          0,
+          0,
+          0
+        ]
+      },
+      "storedPixelChecks": {
+        "center": [
+          220,
+          39,
+          39
+        ],
+        "leftBarMaxChannel": 0,
+        "rightBarMaxChannel": 0,
+        "centerLeftBoundary": [
+          0,
+          0,
+          0
+        ],
+        "centerRightBoundary": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "asset": "motion_test/fixed_red_blue_2s_cover_red_000.png",
+      "sizeBytes": 7685,
+      "sha256": "8066738a3f81109791b6368627510972dc9f7477ef45a48b2a535ee2681daa14",
+      "sourceAsset": "motion_test/fixed_red_blue_2s.mp4",
+      "sourceSha256": "2bae70e8fc2718d3bab7f8271ea7e39f732e90ff92998481f703485a50a98b57",
+      "sourceFrameIndex": 0,
+      "presentationTimestampUs": 0,
+      "width": 1280,
+      "height": 720,
+      "color": "red",
+      "sourceDecodedRgbSha256": "286fa1b2884c1f3650bf40104a09954522b8af3c28404eaec9a2387b6cd8de1b",
+      "storedDecodedRgbSha256": "286fa1b2884c1f3650bf40104a09954522b8af3c28404eaec9a2387b6cd8de1b",
+      "rgbMeanSquaredError": 0.0,
+      "sourcePixelChecks": {
+        "center": [
+          220,
+          39,
+          39
+        ],
+        "leftBarMaxChannel": 0,
+        "rightBarMaxChannel": 0,
+        "centerLeftBoundary": [
+          0,
+          0,
+          0
+        ],
+        "centerRightBoundary": [
+          0,
+          0,
+          0
+        ]
+      },
+      "storedPixelChecks": {
+        "center": [
+          220,
+          39,
+          39
+        ],
+        "leftBarMaxChannel": 0,
+        "rightBarMaxChannel": 0,
+        "centerLeftBoundary": [
+          0,
+          0,
+          0
+        ],
+        "centerRightBoundary": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "asset": "motion_test/fixed_red_blue_2s_cover_blue_045.png",
+      "sizeBytes": 7687,
+      "sha256": "77fb6b494a7c38451cc8801ea4c45a0a5fc49186b46c8e5a7fe3cdd0402bbece",
+      "sourceAsset": "motion_test/fixed_red_blue_2s.mp4",
+      "sourceSha256": "2bae70e8fc2718d3bab7f8271ea7e39f732e90ff92998481f703485a50a98b57",
+      "sourceFrameIndex": 45,
+      "presentationTimestampUs": 1500000,
+      "width": 1280,
+      "height": 720,
+      "color": "blue",
+      "sourceDecodedRgbSha256": "17e53b3b91abe318cf7d2ca7e948a4708ecb4676a77986be9c181015bca1a4f4",
+      "storedDecodedRgbSha256": "17e53b3b91abe318cf7d2ca7e948a4708ecb4676a77986be9c181015bca1a4f4",
+      "rgbMeanSquaredError": 0.0,
+      "sourcePixelChecks": {
+        "center": [
+          40,
+          59,
+          219
+        ],
+        "leftBarMaxChannel": 0,
+        "rightBarMaxChannel": 0,
+        "centerLeftBoundary": [
+          0,
+          0,
+          0
+        ],
+        "centerRightBoundary": [
+          0,
+          0,
+          0
+        ]
+      },
+      "storedPixelChecks": {
+        "center": [
+          40,
+          59,
+          219
+        ],
+        "leftBarMaxChannel": 0,
+        "rightBarMaxChannel": 0,
+        "centerLeftBoundary": [
+          0,
+          0,
+          0
+        ],
+        "centerRightBoundary": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "asset": "motion_test/fixed_blue_red_4s_cover_blue_000.png",
+      "sizeBytes": 7687,
+      "sha256": "77fb6b494a7c38451cc8801ea4c45a0a5fc49186b46c8e5a7fe3cdd0402bbece",
+      "sourceAsset": "motion_test/fixed_blue_red_4s.mp4",
+      "sourceSha256": "6bffa756909f402a6445a8c3f65e2921b2f645acdaa739e3f54ee0f32c88b7a4",
+      "sourceFrameIndex": 0,
+      "presentationTimestampUs": 0,
+      "width": 1280,
+      "height": 720,
+      "color": "blue",
+      "sourceDecodedRgbSha256": "17e53b3b91abe318cf7d2ca7e948a4708ecb4676a77986be9c181015bca1a4f4",
+      "storedDecodedRgbSha256": "17e53b3b91abe318cf7d2ca7e948a4708ecb4676a77986be9c181015bca1a4f4",
+      "rgbMeanSquaredError": 0.0,
+      "sourcePixelChecks": {
+        "center": [
+          40,
+          59,
+          219
+        ],
+        "leftBarMaxChannel": 0,
+        "rightBarMaxChannel": 0,
+        "centerLeftBoundary": [
+          0,
+          0,
+          0
+        ],
+        "centerRightBoundary": [
+          0,
+          0,
+          0
+        ]
+      },
+      "storedPixelChecks": {
+        "center": [
+          40,
+          59,
+          219
+        ],
+        "leftBarMaxChannel": 0,
+        "rightBarMaxChannel": 0,
+        "centerLeftBoundary": [
+          0,
+          0,
+          0
+        ],
+        "centerRightBoundary": [
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  ]
+}

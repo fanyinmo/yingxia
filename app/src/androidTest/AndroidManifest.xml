@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Only the standalone test APK exposes these two synthetic images. -->
+        <provider
+            android:name="com.local.douyinsaver.DynamicPreviewFixtureProvider"
+            android:authorities="com.local.douyinsaver.test.dynamicpreview"
+            android:exported="true" />
+    </application>
+</manifest>

@@ -36,6 +36,7 @@ class WatermarkRecordsTest {
         val marked = old.copy(uri = "content://fixture/marked", watermarkMode = WatermarkMode.WATERMARKED)
         val clean = old.copy(uri = "content://fixture/clean", watermarkMode = WatermarkMode.CLEAN)
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            setState(engine, "video", ParsedVideo(old.id, old.title, "", 0.0, 0, 0))
             setState(engine, "duplicateCandidates", listOf(old, marked, clean))
             engine.updateWatermarkMode(WatermarkMode.CLEAN)
             assertEquals(clean, engine.duplicate)

@@ -10,16 +10,19 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.util.DisplayMetrics
 import android.net.Uri
 import android.os.SystemClock
 import android.os.Build
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -45,6 +50,7 @@ import java.util.UUID
 class FeatureRuntimeTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
+    private var appearanceDecor: View? = null
 
     @Test fun appearanceSlidersDragPersistWithoutSamplePreviewOrUserChanges() {
         val prefix = "appearance_controls_${UUID.randomUUID()}_"
@@ -69,11 +75,14 @@ class FeatureRuntimeTest {
         val userBackground = digest(File(context.filesDir, "appearance/background.jpg"))
         try {
             ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java)).use { scenario ->
+                try {
                 scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
                 await { context.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
-                scenario.onActivity { activity -> activity.setContent {
+                scenario.onActivity { activity -> appearanceDecor = activity.window.decorView; activity.setContent {
                     MaterialTheme {
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp)) { AppearanceControls(store) }
+                        // The fixture must keep the entire production control inside
+                        // both drawing and gesture insets before checking its bounds.
+                        Column(Modifier.fillMaxSize().safeContentPadding().verticalScroll(rememberScrollState()).padding(20.dp)) { AppearanceControls(store) }
                     }
                 } }
                 await { ownNodes().any { it.text?.toString() == "外观" } }
@@ -114,8 +123,13 @@ class FeatureRuntimeTest {
                         assertTrue(screenshot.compress(Bitmap.CompressFormat.PNG, 100, it))
                     } } finally { screenshot.recycle() }
                 }
+                } catch (failure: Throwable) {
+                    captureAppearanceFailure(failure)
+                    throw failure
+                }
             }
         } finally {
+            appearanceDecor = null
             instrumentation.runOnMainSync {
                 (SaverEngine::class.java.getDeclaredField("scope").apply { isAccessible = true }.get(engine) as CoroutineScope).cancel()
                 singleton.set(null, previous)
@@ -132,21 +146,34 @@ class FeatureRuntimeTest {
 
     private fun clickAppearanceText(value: String) {
         var target: AccessibilityNodeInfo? = null
-        for (attempt in 0 until 12) {
-            val text = ownNodes().firstOrNull { it.text?.toString() == value && it.isVisibleToUser }
+        var forward = true
+        for (attempt in 0 until 24) {
+            assertOwnForeground()
+            // Newly inserted FIT choices may exist below the visible viewport. Do not
+            // discard their node before asking the real scroll container to reveal it.
+            val text = ownNodes().firstOrNull { it.text?.toString() == value }
             var candidate = text
             while (candidate != null && candidate.packageName?.toString() == context.packageName) {
-                if (candidate.refresh() && candidate.isClickable && candidate.isEnabled && candidate.isVisibleToUser) {
-                    target = candidate
+                if (candidate.refresh() && candidate.isClickable && candidate.isEnabled) {
+                    val area = Rect().also(candidate::getBoundsInScreen)
+                    val viewport = appearanceScrollViewport()
+                    if (candidate.isVisibleToUser && !area.isEmpty && viewport.contains(area)) {
+                        target = candidate
+                        break
+                    }
+                    candidate.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
+                    if (!area.isEmpty) forward = area.exactCenterY() >= viewport.exactCenterY()
                     break
                 }
                 candidate = candidate.parent
             }
             if (target != null) break
-            ownNodes().firstOrNull { it.isScrollable && it.rangeInfo == null }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            if (!scrollAppearanceStep(forward)) forward = !forward
             SystemClock.sleep(100)
         }
-        assertTrue("No clickable own-app '$value' control", checkNotNull(target).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        assertOwnForeground()
+        val clickable = checkNotNull(target) { "No fully visible clickable own-app '$value' control; ${appearanceControlDiagnostic()}" }
+        assertTrue("No clickable own-app '$value' control", clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK))
         instrumentation.waitForIdleSync()
     }
 
@@ -166,23 +193,25 @@ class FeatureRuntimeTest {
         val density = context.resources.displayMetrics.density
         val minimumHeight = 47.5f * density
         // A visible Compose node may expose only the small part intersecting the viewport.
+        assertOwnForeground()
         ownNodes().firstOrNull { it.contentDescription?.toString() == label }
             ?.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id)
         instrumentation.waitForIdleSync()
+        var forward = true
         for (attempt in 0 until 12) {
             val node = slider()
             val area = node?.let { Rect().also(it::getBoundsInScreen) }
-            val viewport = ownNodes().firstOrNull { it.isScrollable && it.rangeInfo == null }
-                ?.let { Rect().also(it::getBoundsInScreen) }
-            if (area != null && area.height() >= minimumHeight && (viewport == null || viewport.contains(area))) break
-            ownNodes().firstOrNull { it.isScrollable && it.rangeInfo == null }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            val viewport = appearanceScrollViewport()
+            if (area != null && area.height() >= minimumHeight && viewport.contains(area)) break
+            if (area != null && !area.isEmpty) forward = area.exactCenterY() >= viewport.exactCenterY()
+            if (!scrollAppearanceStep(forward)) forward = !forward
             SystemClock.sleep(100)
         }
         val node = checkNotNull(slider()) { "No visible native range control for '$label'; ${appearanceRangeDiagnostic(label)}" }
         val bounds = Rect().also(node::getBoundsInScreen)
-        val viewport = ownNodes().firstOrNull { it.isScrollable && it.rangeInfo == null }?.let { Rect().also(it::getBoundsInScreen) }
+        val viewport = appearanceScrollViewport()
         val diagnostic = "label=$label bounds=${bounds.toShortString()} heightDp=${bounds.height() / density} density=$density " +
-            "viewport=${viewport?.toShortString()} range=${node.rangeInfo?.current} state=${node.stateDescription} " +
+            "viewport=${viewport.toShortString()} range=${node.rangeInfo?.current} state=${node.stateDescription} " +
             "actions=${node.actionList.map { it.id }}; ${appearanceRangeDiagnostic(label)}"
         println("appearance_slider_bounds $diagnostic")
         if (bounds.height() < minimumHeight) {
@@ -193,6 +222,7 @@ class FeatureRuntimeTest {
             }
         }
         assertTrue("'$label' lost its 48dp touch area after scrolling: $diagnostic", bounds.height() >= minimumHeight)
+        assertTrue("'$label' is not completely inside the safe own-app scroll viewport: $diagnostic", viewport.contains(bounds))
         assertNotNull("'$label' lost native slider semantics", node.rangeInfo)
         val old = read()
         val current = ((old - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
@@ -202,6 +232,10 @@ class FeatureRuntimeTest {
         val touchY = bounds.exactCenterY() + if (label == "整页背景模糊") 14f * density else 0f
         val start = SystemClock.uptimeMillis()
         fun pointer(action: Int, target: Float) {
+            if (action != MotionEvent.ACTION_CANCEL) {
+                assertOwnForeground()
+                assertTrue("Appearance gesture crossed a system edge: $diagnostic", viewport.contains(x(target).toInt(), touchY.toInt()))
+            }
             val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x(target), touchY, 0)
             event.source = InputDevice.SOURCE_TOUCHSCREEN
             try { assertTrue("Own-app appearance gesture was rejected", instrumentation.uiAutomation.injectInputEvent(event, true)) }
@@ -218,6 +252,7 @@ class FeatureRuntimeTest {
             pointer(MotionEvent.ACTION_CANCEL, fraction)
             throw failure
         }
+        assertOwnForeground()
         val expected = range.start + (range.endInclusive - range.start) * fraction
         await { kotlin.math.abs(read() - expected) <= (range.endInclusive - range.start) * 0.05f }
         assertTrue("'$label' did not actually change", kotlin.math.abs(read() - old) > (range.endInclusive - range.start) * 0.05f)
@@ -254,6 +289,105 @@ class FeatureRuntimeTest {
         }
         instrumentation.uiAutomation.rootInActiveWindow?.let(::visit)
         return result
+    }
+
+    private fun assertOwnForeground() {
+        if (Build.VERSION.SDK_INT >= 33) instrumentation.uiAutomation.clearCache()
+        val root = instrumentation.uiAutomation.rootInActiveWindow
+        assertEquals("Appearance test lost the active app window; system overlays cannot receive these gestures",
+            context.packageName, root?.packageName?.toString())
+        val focused = instrumentation.uiAutomation.windows.filter { it.isFocused }
+        assertTrue("Appearance test lost the focused app window: ${focused.map { it.root?.packageName }}",
+            focused.isEmpty() || focused.any { it.root?.packageName?.toString() == context.packageName })
+    }
+
+    private fun safeViewport(): Rect {
+        val result = Rect()
+        instrumentation.runOnMainSync {
+            val decor = checkNotNull(appearanceDecor) { "Appearance activity decor is unavailable" }
+            // Insets are measured from physical display edges. Decor may already have
+            // a nonzero screen origin; adding insets to that origin clips them twice.
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            checkNotNull(decor.display).getRealMetrics(metrics)
+            result.set(0, 0, metrics.widthPixels, metrics.heightPixels)
+            val insets = ViewCompat.getRootWindowInsets(decor)?.getInsets(WindowInsetsCompat.Type.systemBars() or
+                WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.systemGestures())
+            if (insets != null) result.set(result.left + insets.left, result.top + insets.top,
+                result.right - insets.right, result.bottom - insets.bottom)
+            val visibleFrame = Rect().also(decor::getWindowVisibleDisplayFrame)
+            check(result.intersect(visibleFrame)) { "Appearance visible window has no safe display intersection" }
+        }
+        val root = checkNotNull(instrumentation.uiAutomation.rootInActiveWindow)
+        assertEquals(context.packageName, root.packageName?.toString())
+        assertTrue("Active appearance window has no safe drawing area", result.intersect(Rect().also(root::getBoundsInScreen)))
+        assertFalse("Appearance safe viewport is empty", result.isEmpty)
+        return result
+    }
+
+    private fun appearanceScrollViewport(): Rect {
+        assertOwnForeground()
+        val result = safeViewport()
+        ownNodes().firstOrNull { it.isScrollable && it.rangeInfo == null }?.let {
+            assertTrue("Appearance scroll viewport does not intersect its safe app window", result.intersect(Rect().also(it::getBoundsInScreen)))
+        }
+        val margin = (4f * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        result.inset(margin, margin)
+        return result
+    }
+
+    private fun scrollAppearanceStep(forward: Boolean): Boolean {
+        assertOwnForeground()
+        val viewport = appearanceScrollViewport()
+        val scroll = ownNodes().firstOrNull { it.isScrollable && it.rangeInfo == null && it.isVisibleToUser &&
+            Rect.intersects(viewport, Rect().also(it::getBoundsInScreen)) }
+        checkNotNull(scroll) { "No own-app appearance scroll container" }
+        val before = appearanceControlDiagnostic()
+        // A short physical vertical scroll avoids a whole-page accessibility jump
+        // skipping newly added choices. The x coordinate is inside the outer padding.
+        val density = context.resources.displayMetrics.density
+        val x = viewport.left + 4f * density
+        val from = viewport.top + viewport.height() * (if (forward) 0.72f else 0.32f)
+        val to = viewport.top + viewport.height() * (if (forward) 0.46f else 0.58f)
+        val start = SystemClock.uptimeMillis()
+        fun inject(action: Int, y: Float) {
+            if (action != MotionEvent.ACTION_CANCEL) {
+                assertOwnForeground()
+                assertTrue("Appearance reveal scroll left its safe own viewport", viewport.contains(x.toInt(), y.toInt()))
+            }
+            val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x, y, 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+        }
+        inject(MotionEvent.ACTION_DOWN, from)
+        try {
+            repeat(12) { step -> SystemClock.sleep(20); inject(MotionEvent.ACTION_MOVE, from + (to - from) * (step + 1) / 12f) }
+            inject(MotionEvent.ACTION_UP, to)
+        } catch (failure: Throwable) { inject(MotionEvent.ACTION_CANCEL, to); throw failure }
+        instrumentation.waitForIdleSync()
+        assertOwnForeground()
+        return before != appearanceControlDiagnostic()
+    }
+
+    private fun appearanceControlDiagnostic(): String = ownNodes().filter {
+        it.isVisibleToUser && (!it.text.isNullOrBlank() || !it.contentDescription.isNullOrBlank())
+    }.joinToString("; ") { "text=${it.text} desc=${it.contentDescription} bounds=${Rect().also(it::getBoundsInScreen).toShortString()}" }
+
+    private fun captureAppearanceFailure(failure: Throwable) {
+        runCatching {
+            val directory = File(context.cacheDir, "appearance_ui_failure_${UUID.randomUUID()}").apply { check(mkdir()) }
+            check(directory.canonicalFile.parentFile == context.cacheDir.canonicalFile)
+            File(directory, "failure.json").writeText(JSONObject().put("scope", "OWN_ISOLATED_APPEARANCE_FIXTURE_FAILURE")
+                .put("version", InstalledTestTarget.versionName).put("instrumentationCompiledVersion", BuildConfig.VERSION_NAME).put("failureType", failure.javaClass.simpleName)
+                .put("message", failure.message.orEmpty()).put("activePackage", instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString())
+                .put("safeViewport", runCatching { safeViewport().toShortString() }.getOrNull())
+                .put("nodes", appearanceControlDiagnostic()).toString(2))
+            instrumentation.uiAutomation.takeScreenshot()?.let { screenshot ->
+                try { File(directory, "failure.png").outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+                finally { screenshot.recycle() }
+            }
+            failure.addSuppressed(AssertionError("captureRoot=${directory.absolutePath}"))
+        }.onFailure { failure.addSuppressed(AssertionError("Appearance failure capture failed: ${it.javaClass.simpleName}")) }
     }
 
     private fun await(condition: () -> Boolean) {

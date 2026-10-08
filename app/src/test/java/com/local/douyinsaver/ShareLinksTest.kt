@@ -24,4 +24,18 @@ class ShareLinksTest {
     @Test fun rejectsMultipleDistinctLinks() {
         assertThrows(IllegalArgumentException::class.java) { ShareLinks.extract("https://v.douyin.com/a/ https://v.douyin.com/b/") }
     }
+
+    @Test fun resolvingAnAlreadyKnownOfficialNoteRetainsItsCompleteShareContext() {
+        val url = "https://www.iesdouyin.com/share/note/7685772229787700580/?share_sign=a%2Bb%3D&app=aweme&schema_type=37&x=1&x=2"
+        assertEquals(ResolvedShare("7685772229787700580", url), ShareLinks.resolveShare("图文作品 $url 复制打开抖音"))
+        assertEquals("7685772229787700580", ShareLinks.resolveVideoId(url))
+    }
+
+    @Test fun resolvingAKnownWorkStillRejectsAnUntrustedOrInsecureContext() {
+        listOf("https://douyin.com.attacker.test/share/note/7685772229787700580/",
+            "http://www.iesdouyin.com/share/note/7685772229787700580/",
+            "https://user@www.iesdouyin.com/share/note/7685772229787700580/").forEach { url ->
+            assertThrows(IllegalArgumentException::class.java) { ShareLinks.resolveShare(url) }
+        }
+    }
 }

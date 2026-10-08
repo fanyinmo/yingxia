@@ -3,6 +3,9 @@ package com.local.douyinsaver
 import java.net.HttpURLConnection
 import java.net.URI
 
+/** Preserve the official mobile route and share parameters after validating its redirect origin. */
+data class ResolvedShare(val id: String, val url: String)
+
 object ShareLinks {
     private val urls = Regex("https?://[^\\s<>\\\"'，。！？、（）【】]+", RegexOption.IGNORE_CASE)
     private val videoPath = Regex("^/(?:share/)?(?:video|note|slides)/(\\d{15,22})(?:/|$)")
@@ -43,10 +46,12 @@ object ShareLinks {
             ?.substringAfter('=')?.takeIf { it.matches(Regex("\\d{15,22}")) }
     }
 
-    fun resolveVideoId(text: String): String {
+    fun resolveVideoId(text: String): String = resolveShare(text).id
+
+    fun resolveShare(text: String): ResolvedShare {
         var url = extract(text)
         repeat(7) {
-            videoId(url)?.let { return it }
+            videoId(url)?.let { return ResolvedShare(it, url) }
             val connection = URI(url).toURL().openConnection() as HttpURLConnection
             try {
                 connection.instanceFollowRedirects = false
@@ -60,7 +65,7 @@ object ShareLinks {
                     require(next.scheme == "https" && isShareHost(next.host) && next.userInfo == null && (next.port == -1 || next.port == 443)) { "分享链接跳转到了不支持的网站" }
                     url = next.toString()
                 } else {
-                    videoId(connection.url.toString())?.let { return it }
+                    videoId(connection.url.toString())?.let { return ResolvedShare(it, connection.url.toString()) }
                     error(if (status >= 400) "分享链接访问失败（HTTP $status）" else "未识别到作品，请确认是视频或图集分享链接")
                 }
             } finally {

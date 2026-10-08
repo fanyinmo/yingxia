@@ -1,5 +1,9 @@
 # 构建与验证
 
+本版已移除实况照片保存和动图转实况。保留静图、原格式动图、无声 MP4、GIF、单项保存及 BGM 合成。动态卡片只提供保留动态素材和 GIF；批量保存默认保留已有格式，未分类片段保存为无声动图。旧记录与旧文件保留；读取内嵌动态片段只用于兼容预览或 GIF／BGM 输入，不再生成实况照片。
+
+当前正式版为 **1.2.0 / code 42**，本地安装包与源码位于 `outputs/latest/`，采用用户确认的 rc21 功能。本轮模拟器实际结果及限制见 [电脑验证](testing/EMULATOR_RC21.md) 和 [最新版说明](CURRENT_VERSION.md)。
+
 当前正式构建为影匣 **1.1.0**、`versionCode 20`。用户已确认候选 **1.1.0-rc3 / code 19** 手机测试正常，正式包采用递增版本配置重新构建与校验，不能把候选包改文件名当正式包，也不把候选手机反馈当作正式 APK 的手机测试。首版基线为 **1.0.0 / code 10**；相对变更见 [CHANGELOG](CHANGELOG.md)。
 
 环境为 JDK 17、Gradle 8.13、AGP 8.13.2、Kotlin 2.2.21、compile/target SDK 35、min SDK 29。图标与默认主题使用天蓝色。
@@ -28,10 +32,10 @@ python scripts/bootstrap_android.py --accept-license
 ./scripts/build.ps1 -Test                       # Kotlin 单元测试
 ./scripts/build.ps1                             # 普通 debug APK
 ./scripts/build.ps1 -Validate -Instrumentation  # 测试、Lint、普通 APK 与独立测试 APK
-node --test parser-lab/browser-script.test.cjs parser-lab/public-page-script.test.cjs
+node --test parser-lab/browser-script.test.cjs parser-lab/public-page-script.test.cjs parser-lab/desktop-album-script.test.cjs
 ```
 
-非 Windows 对应命令为 `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`。普通构建输出 `app/build/outputs/apk/debug/app-debug.apk`；PowerShell 脚本按 `versionName` 复制到 `outputs/apk/yingxia-1.1.0.apk`。测试包位于 `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`。
+非 Windows 对应命令为 `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`。普通构建输出 `app/build/outputs/apk/debug/app-debug.apk`；PowerShell 脚本按 `versionName` 复制到 `outputs/apk/yingxia-1.2.0.apk`。测试包位于 `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`。
 
 普通 APK 不包含 instrumentation 或图集测试素材。独立测试 APK 只用于开发设备。`phonecheck` 是开发测试变体，不能作为正式安装包发布。
 
@@ -42,14 +46,14 @@ node --test parser-lab/browser-script.test.cjs parser-lab/public-page-script.tes
 ```powershell
 $taskAdb = './.tools/android-sdk/platform-tools/adb.exe'
 $taskDevice = '<当前测试设备编号>'
-& $taskAdb -s $taskDevice install -r 'outputs/apk/yingxia-1.1.0.apk'
+& $taskAdb -s $taskDevice install -r 'outputs/apk/yingxia-1.2.0.apk'
 & $taskAdb -s $taskDevice install -r 'app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'
 & $taskAdb -s $taskDevice shell am instrument -w -e class 'com.local.douyinsaver.CustomColorPickerTest' 'com.local.douyinsaver.test/androidx.test.runner.AndroidJUnitRunner'
 ```
 
 示例中的 `$taskAdb` 使用项目内 SDK 路径；若采用 Android Studio 或项目外 SDK，请替换为本机实际的 `platform-tools/adb.exe` 路径。
 
-Android shell 返回码不能代替测试结果，检查输出中的 `OK` 或失败详情。调色盘测试用隔离引擎启动 MainActivity 并挂载纯调色盘，颜色回调仅更新测试状态；另用独立偏好验证外观保存，不修改用户偏好。其他状态测试也采用独立偏好命名空间。自制红蓝图片和短音频是运行测试需要的素材，应保留在源码中。
+Android shell 返回码不能代替测试结果。检查逐方法的 instrumentation status 与完整失败详情：`statusCode=0` 才计实际成功，`-4` 为前提不满足而跳过，`-3` 为忽略；JUnit `OK` 汇总也可能包含这些未执行断言的项目。调色盘测试用隔离引擎启动 MainActivity 并挂载纯调色盘，颜色回调仅更新测试状态；另用独立偏好验证外观保存，不修改用户偏好。其他状态测试也采用独立偏好命名空间。自制红蓝图片、短音频及附 SHA-256 清单的固定测试视频是运行测试需要的素材，应保留在测试源码中，普通 APK 不包含它们。
 
 ### 显式测试真实公开作品
 
@@ -65,13 +69,32 @@ $taskVideoId = '<对应作品的数字 ID>'
 
 `scripts/phone_smoke.py` 需要显式 `--serial`，外部 SDK 可用 `--adb` 指定可执行文件，触控前确认前台为本 App。它按需生成的 `work/` 和 `outputs/` 属于忽略的本地文件。
 
+### 显式验证桌面逐图动态来源
+
+`DesktopAlbumPublicSampleTest` 默认跳过真实网络请求，需明确传入 `run_desktop_album=true`、分享链接及准确作品 `id`。它调用生产桌面 resolver、来源策略、传输、MP4 验证与 GIF 转换，只使用本次 App 私有缓存，不写 MediaStore、用户记录或偏好。
+
+```powershell
+& $taskAdb -s $taskDevice shell am instrument -w -e class 'com.local.douyinsaver.DesktopAlbumPublicSampleTest' -e run_desktop_album true -e shareUrl $taskShareUrl -e id $taskVideoId 'com.local.douyinsaver.test/androidx.test.runner.AndroidJUnitRunner'
+```
+
+JUnit 返回 `OK` 只表明探针执行完成；实际成功必须核对本次 `desktop-album-result-<id>.json` 的 `status=VERIFIED`、`success=true` 和逐图 MP4／GIF 运动证据。报告及缓存媒体按需复制到被 Git 忽略的 `outputs/reports/desktop-motion-poc/`，不提交签名媒体 URL、Cookie、原网页或用户状态。受控生命周期及引擎测试与真实来源探针分别记录，产品按钮、相册发布、记录、单条与批量的完整流程仍需独立检查。
+
+### 验证资源保存与实际 App 操作
+
+
+真实作品的 `AlbumMotionAppPipelineTest` 需显式 `run_album_motion_app=true`、准确 `id` 与 `shareUrl`，`mode` 或 `export_mode` 可为 `LIVE_PHOTOS`、`MOTION_VIDEOS`、`GIF`；`batch=true` 检查批量卡片。可选的 `seed_cover_from_desktop=true` 仅为移动页被拒设备建立测试卡片，报告保留 `DESKTOP_COVER_TEST_SETUP`，不得计为初始移动解析成功。
+
+
 ## 实现与签名
 
-图集 MP4 使用 Media3 Transformer，在设备本地导出 H.264/AAC。媒体地址和各次重定向会验证来源，取消时只清理本次创建的文件。当前没有后台自动解析和断点续传。
+素材与 BGM 合成使用 Media3 Transformer，本地导出 H.264/AAC，动态项使用实际短片/动画，静态项使用图片；统一 30fps 画布按比例留边。默认采用动态实际时长与静图设置时长，用户可用 0.1 秒精度覆盖每项时长，截取/循环前确认，BGM 循环至结束。它是重新编码的衍生视频，与原素材保存区分。
 
-本轮已确认此前失败的视频由 `v5-coldx.douyinvod.com` 跳转到 `bdcgslb.com` 的动态调度子域，新增对该区域的支持：域名前缀必须是单层、1–63 字符的有效 DNS 标签，根域、多层子域及伪后缀均拒绝。直接媒体地址仍要求 HTTPS、默认或 443 端口，禁止嵌入凭据，不绕过 TLS；探测、预览、下载与每次重定向沿用同一门禁。
 
-已有的 HTTP 重定向兼容路径同样适用于此次新增的合法调度子域：可信来源的 Location 使用 HTTP、无嵌入凭据且端口为默认或 80 时，先转换为同域、同原始路径与签名参数的 HTTPS 地址，再重新验证并请求。初始 HTTP 地址仍拒绝，不发送明文 HTTP；任意未知域名和非标准端口不会因此获得支持。
+此前失败的视频由 `v5-coldx.douyinvod.com` 跳转到 `bdcgslb.com` 的动态调度子域，已支持该区域：域名前缀必须是单层、1–63 字符的有效 DNS 标签，根域、多层子域及伪后缀均拒绝。通常的媒体地址要求 HTTPS、默认或 443 端口，禁止嵌入凭据，不绕过 TLS；探测、预览、下载与每次重定向沿用同一门禁。rc4 根据用户官方 CDN 跳转诊断，单独允许 `https://<8位数字>.ydycdn.com:58001`；该例外不适用于根域、多层子域、其他端口、HTTP 或其他媒体域名。
+
+rc4 实测上述数字冷节点完整 GET 会提前结束响应，新增限定节点的 1 MiB 分段原字节下载。每个 206 响应核验 Content-Range、Content-Length、总长度及强 ETag，后续请求发送 If-Range；每段最多两次重试，总期限十分钟。忽略 Range 的 200 响应只能从零完整重写，不能追加到已有片段。缺少强 ETag 时退回既有完整 GET。rc5 在共享传输中使用这条受限兼容路径，普通视频、GIF 来源和逐图片段经过同一门禁；不是把所有媒体地址都改成分段。完整媒体验证后才发布，失败或取消移除本次临时文件，不发布部分文件。
+
+已有的 HTTP 重定向兼容路径同样适用于合法调度子域：可信来源的 Location 使用 HTTP、无嵌入凭据且端口为默认或 80 时，先转换为同域、同原始路径与签名参数的 HTTPS 地址，再重新验证并请求。初始 HTTP 地址仍拒绝，不发送明文 HTTP；未知域名和任意非标准端口不会因此获得支持。
 
 跳转诊断在拒绝前记录目标 `host`、`scheme`、`port` 和是否允许；长 DNS 主机名不再被误当作不透明秘密，完整签名 URL、查询参数、Cookie 和凭据仍脱敏。手机诊断已确认上述被拒域，来源规则已补充。用户随后确认候选版手机测试正常；该反馈与自动测试结果分别记录，不能仅凭域名核验或构建成功推断所有真实作品均可用。
 
@@ -83,11 +106,14 @@ Windows 中文目录使用 `android.overridePathCheck=true`。Java 17 测试启�
 
 默认测试不请求真实作品。可给 `PhonePipelineTest` 显式传入已有公共链接与作品 ID，并设置 `run_public_pipeline=true`。`download=true` 启用保存；下载固定为 `CLEAN`，可省略 `watermarkMode`，如显式提供仅接受 `watermarkMode=CLEAN`，其他值会被拒绝。`inspectSources=true` 将来源报告保存在目标 App 私有缓存，`captureFrames=true` 仅对新保存文件捕获开头、中段和末段画面。来源报告可能包含临时签名 URL，不应上传仓库。
 
-所有下载与预览固定使用同一作品的 `CLEAN` 来源。旧版本偏好不再读取或写入，但保留原偏好、文件和记录；历史里的其他版本或未分类文件不能作为 CLEAN 重复文件。图集必须每一张图片都有 CLEAN 来源，缺失时拒绝解析，不以其他来源替代。
+所有下载与预览固定使用同一作品的 `CLEAN` 来源。旧版本偏好不再读取或写入，但保留原偏好、文件和记录；历史里的其他版本或未分类文件不能作为 CLEAN 重复文件。保存整套图集需要每项都有可用来源；逐项保存只选择目标图片，未选择的邻居不会被下载。不以其他来源替代，来源补充只能凭明确图片身份合并。
 
 图集的 `displayUrls` 必须来自已确认的当前作品结构字段；不同清晰度地址只按同一图片 URI 配对，不按列表位置猜测。排除显式水印变换与无法判断的水印开关后，官方展示地址可作为 CLEAN 来源，不再要求同时存在明确的 WATERMARKED 下载变体。若展示与下载地址相同，或仅 fragment 不同，归类为 ORIGINAL 与 CLEAN，避免同一真实请求被两种来源标签冲突拒绝；仅有未分类下载字段或未标明角色的扁平 URL 不能自动升为 CLEAN，明确的来源标记仍按原规则判定。
 
 这里的 CLEAN 表示选择官方展示来源并排除已知的水印派生地址，不代表图像像素经过检测或编辑，作者嵌入的 Logo、文字等不会被移除。所有图片必须完整保留顺序，BGM 仍绑定同一作品，单条与批量使用共享来源策略。
+
+
+实际验证／登录门槛允许用户主动打开官方 WebView 手动完成后继续；常驻登录按钮不会触发。当前这条手动路径仅在受控页面验证，尚未实测真实网络验证码。诊断只输出有限计数、字段存在标志、受限枚举与主机名，不转储 RSC 内容、图片键、媒体 URL 或 Cookie。
 
 图文诊断已经确认 `albums=1`、`images=1`、`bgm=true`，拒绝触发点是旧的图片来源分类，修复后用户已确认候选版手机测试正常。日志中的音频 CDN 子资源网络错误不是这次解析拒绝的触发点，本次来源修复不代表所有音频网络错误均已解决。图片保存不依赖 BGM 成功；合成仍需独立下载并验证实际音频，不能仅凭解析到 BGM 地址认定声音可用。用户没有提供逐项测试日志，不将一般正常反馈扩写为每条链接、每种保存模式都已验证。
 
@@ -123,4 +149,8 @@ Windows 中文目录使用 `android.overridePathCheck=true`。Java 17 测试启�
 
 本机 `local.properties`、签名密钥和正在使用的状态备份继续保留在本机；个人诊断、手机备份、截图、下载样本、旧 APK 与构建缓存不进入 Git。正式普通 APK 通过 Releases 分发。完成验证并保留新 APK 与最新证据后，才清理旧产物；有价值的故障报告可归档到工程外。详细发布步骤见 [发布与维护](GITHUB.md)。
 
-本次候选已取得用户的手机验证确认与上传授权，正式配置为 `versionName 1.1.0 / versionCode 20`，按上述命令重新构建并校验 `outputs/apk/yingxia-1.1.0.apk`。正式包通过 `v1.1.0` Release 分发；发布前核对包版本、签名与 SHA-256，发布后核验仓库页面和附件。候选测试、正式包构建检查及后续手机测试分别列入 [验证记录](VALIDATION.md)。
+已发布的 1.1.0 曾取得用户的候选手机验证确认与上传授权，正式配置为 `versionName 1.1.0 / versionCode 20`，正式包通过 `v1.1.0` Release 分发。当前开发候选为 1.2.0-rc21，电脑模拟器复测已完成本轮登记项目，完整手机验收仍待完成，尚不推送 GitHub。发布前核对包版本、签名与 SHA-256，发布后核验仓库页面和附件；历次候选、正式包及手机反馈分别列入 [验证记录](VALIDATION.md)。
+
+## 发布已确认的安装包
+
+`.github/workflows/publish-approved-release.yml`只在main的`docs/releases/publish.json`更新时运行。清单中的Git对象是已批准APK的传输分段，不是应用源码树里的APK；发布任务逐段校验后重组相同字节，创建正式标签与Release，上传APK和摘要，不重新构建另一个签名包。清单无签名密钥和账号凭据；授权来自GitHub内置令牌，权限限定contents.write。已发布且摘要一致的版本不会再次上传；同标签不同包拒绝覆盖。传输对象仅用于当次发布，后续重新发布新版本应准备新清单，不依赖旧未引用对象长期存在。

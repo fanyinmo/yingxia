@@ -131,6 +131,40 @@ object PublicPageScript {
                 const videoMediaIds = video => Array.from(new Set([mediaId(video.video_id),
                     ...videoPlayAddresses(video).map(address => address && typeof address === 'object'
                         ? mediaId(address.uri) : '')].filter(Boolean))).slice(0, 16);
+                const dynamicImage = (image, alternates) => {
+                    if (!image || typeof image !== 'object') return {};
+                    const matching = typeof image.uri === 'string' && image.uri ? alternates.get(image.uri) || [] : [];
+                    const originals = [image, ...matching];
+                    // A clip belongs to this photo only through its own video object or an exact
+                    // image-URI variant. The work's video/audio and DOM players are not substitutes.
+                    // The official slides renderer defines 1=Video, 2=Image, 3=LivePhoto, 4=Default.
+                    // Keep untagged older metadata; tagged static/unknown entries cannot supply a clip.
+                    const clips = originals.filter(entry => entry &&
+                        (!Object.prototype.hasOwnProperty.call(entry, 'clip_type') || [1, 3, 4].includes(entry.clip_type)))
+                        .map(entry => entry.video)
+                        .filter(clip => clip && typeof clip === 'object' && !Array.isArray(clip));
+                    if (clips.length) {
+                        const clip = clips.find(entry => videoPlayUrls(entry).length || videoMediaIds(entry).length) || clips[0];
+                        const address = clip.play_addr || clip.download_addr || {};
+                        return {kind: originals.some(entry => entry && entry.clip_type === 3) ? 'LIVE' :
+                            originals.some(entry => entry && entry.clip_type === 1) ? 'ANIMATED' : 'DYNAMIC', motion: {
+                            playUrls: Array.from(new Set(clips.flatMap(videoPlayUrls))).slice(0, 64),
+                            downloadUrls: Array.from(new Set(clips.flatMap(videoDownloadUrls))).slice(0, 64),
+                            mediaIds: Array.from(new Set(clips.flatMap(videoMediaIds))).slice(0, 16),
+                            width: finite(clip.width) || finite(address.width),
+                            height: finite(clip.height) || finite(address.height),
+                            durationSeconds: finite(clip.duration) / 1000}};
+                    }
+                    // A declared Live Photo without a clip must not be reported as a completed still.
+                    if (originals.some(entry => entry && entry.clip_type === 3)) return {kind: 'LIVE'};
+                    const displayed = [image, ...matching].flatMap(displayImageUrls);
+                    // GIF is only a hint for the UI. Native downloads inspect the file bytes;
+                    // WebP/PNG may also animate and cannot be classified from the suffix alone.
+                    const gif = displayed.some(value => {
+                        try { return /\.gif$/i.test(new URL(value).pathname); } catch (_) { return false; }
+                    });
+                    return gif ? {mimeType: 'image/gif'} : {};
+                };
                 const audioUrl = value => {
                     const secure = https(value);
                     if (secure) return secure;
@@ -172,6 +206,8 @@ object PublicPageScript {
                 const queue = [route];
                 const seen = new Set();
                 const ownedAudio = [];
+                const ownedPhotoVariants = new Map();
+                const albumOrigins = [];
                 for (let cursor = 0; cursor < queue.length && cursor < 12000; cursor++) {
                     const x = queue[cursor];
                     if (!x || typeof x !== 'object' || seen.has(x)) continue;
@@ -184,10 +220,21 @@ object PublicPageScript {
                             .find(value => Array.isArray(value) && value.length > 0);
                         if (images && images.length <= 200 && result.albums.length < 16) {
                             const alternates = imageAlternates(x);
-                            result.albums.push({owner: id, title: text(x.desc, 500),
-                                images: images.map(image => ({...imageSources(image, alternates),
+                            const album = {owner: id, title: text(x.desc, 500),
+                                images: images.map(image => ({...imageSources(image, alternates), ...dynamicImage(image, alternates),
+                                    imageKey: text(image && image.uri, 2048),
                                     width: finite(image && image.width), height: finite(image && image.height)})),
-                                bgmUrls: bgm.urls, bgmDuration: bgm.duration});
+                                bgmUrls: bgm.urls, bgmDuration: bgm.duration};
+                            result.albums.push(album);
+                            albumOrigins.push({album: album, images: images});
+                            images.forEach(image => {
+                                if (!image || typeof image.uri !== 'string' || !image.uri || image.uri.length > 2048) return;
+                                const matching = ownedPhotoVariants.get(image.uri) || [];
+                                [image, ...(alternates.get(image.uri) || [])].forEach(variant => {
+                                    if (matching.length < 32 && !matching.includes(variant)) matching.push(variant);
+                                });
+                                ownedPhotoVariants.set(image.uri, matching);
+                            });
                         }
                         if (images && images.length > 0) {
                             // A note's video field can be a soundtrack/placeholder, not a rendered video.
@@ -234,6 +281,11 @@ object PublicPageScript {
                 // Partial hydration can expose the same work more than once. A music-less
                 // first copy must not conceal this work's later public audio fields.
                 const sameWorkAudio = Array.from(new Set(ownedAudio)).slice(0, 64);
+                // A later copy of the exact work may expose a photo clip after its still image.
+                // Join only by its URI; a reordered or absent URI cannot borrow a neighbor's clip.
+                albumOrigins.forEach(({album, images}) => images.forEach((image, index) => {
+                    Object.assign(album.images[index], dynamicImage(image, ownedPhotoVariants));
+                }));
                 result.albums.forEach(album => {
                     album.bgmUrls = Array.from(new Set([...album.bgmUrls, ...sameWorkAudio])).slice(0, 64);
                     if (!(album.bgmDuration > 0)) {
@@ -258,6 +310,20 @@ object PublicPageScript {
                 });
                 if (v) {
                     const src = https(v.currentSrc || v.src || '');
+                    // A mobile player can expose the official iesdouyin playback mirror before
+                    // loading dimensions. Accept its metadata only when the opaque video_id is
+                    // also present in this exact work's structured play address. A page ID,
+                    // recommendation player, unmatched clip or arbitrary CDN is insufficient.
+                    let playbackId = '';
+                    try {
+                        const address = new URL(src);
+                        const ids = address.searchParams.getAll('video_id');
+                        if (['aweme.snssdk.com', 'www.iesdouyin.com'].includes(address.hostname.toLowerCase()) &&
+                            ['/aweme/v1/play/', '/aweme/v1/playwm/'].includes(address.pathname) && ids.length === 1)
+                            playbackId = mediaId(ids[0]);
+                    } catch (_) {}
+                    const sameVideo = playbackId ? result.candidates.find(entry => entry.structured &&
+                        (entry.mediaIds || []).includes(playbackId) && entry.owner === id) : null;
                     // Request metadata once. Repeated play/pause or load calls can prevent readiness.
                     v.muted = true;
                     v.volume = 0;
@@ -268,8 +334,10 @@ object PublicPageScript {
                     }
                     addCandidate({owner: id, url: src,
                         title: text((document.querySelector('h1') || {}).textContent || document.title, 500),
-                        ready: finite(v.readyState), duration: finite(v.duration),
-                        width: finite(v.videoWidth), height: finite(v.videoHeight), structured: false,
+                        ready: finite(v.readyState) || (sameVideo ? 1 : 0),
+                        duration: finite(v.duration) || (sameVideo ? sameVideo.duration : 0),
+                        width: finite(v.videoWidth) || (sameVideo ? sameVideo.width : 0),
+                        height: finite(v.videoHeight) || (sameVideo ? sameVideo.height : 0), structured: false,
                         sourceField: 'dom', playUrls: src ? [src] : [], downloadUrls: []});
                 }
                 // Preserve the original single-candidate shape for callers while they migrate.

@@ -10,6 +10,32 @@ class WatermarkSourcesTest {
     private fun video(sources: List<MediaSource>) = ParsedVideo("7689301063664454962", "标题", markedCdn, 3.0, 720, 1280,
         mediaSources = sources)
 
+    @Test fun observedOfficialMobilePlaybackMirrorKeepsItsMediaIdentityAndSignedParameters() {
+        val mirror = entry.replace("aweme.snssdk.com", "www.iesdouyin.com")
+        val variants = WatermarkSources.videoSources(emptyList(), unclassifiedUrls = listOf(mirror))
+        val clean = variants.single { it.mode == WatermarkMode.CLEAN }.url
+        assertEquals(mirror.replace("/playwm/", "/play/").replace("watermark=1", "watermark=0"), clean)
+        assertTrue(MediaUrls.isPlaybackEntry(clean))
+        assertTrue(clean.contains("token=a%2Fb%3D"))
+        assertEquals("www.iesdouyin.com", java.net.URI(clean).host)
+        assertTrue(variants.contains(MediaSource(mirror, WatermarkMode.WATERMARKED)))
+        assertThrows(IllegalArgumentException::class.java) {
+            WatermarkSources.requireSelectedUrl(mirror, WatermarkMode.CLEAN, variants)
+        }
+    }
+
+    @Test fun arbitraryOfficialPagesAndOtherPlaybackOriginsCannotInheritTheMirrorRole() {
+        listOf("https://www.iesdouyin.com/share/video/7689301063664454962/",
+            entry.replace("aweme.snssdk.com", "other.iesdouyin.com"),
+            entry.replace("aweme.snssdk.com", "www.douyin.com"),
+            entry.replace("aweme.snssdk.com", "www.iesdouyin.com.evil.example"),
+            entry.replace("aweme.snssdk.com", "www.iesdouyin.com").replace("/playwm/", "/playwm/other/")).forEach { url ->
+            assertFalse(MediaUrls.isPlaybackEntry(url))
+            assertFalse(WatermarkSources.videoSources(emptyList(), unclassifiedUrls = listOf(url))
+                .any { it.mode == WatermarkMode.CLEAN })
+        }
+    }
+
     @Test fun publicPlaybackEntryBuildsTwoVersionsWithoutChangingTheMediaIdentity() {
         val variants = WatermarkSources.videoSources(listOf(entry))
         assertEquals(2, variants.count { it.mode != WatermarkMode.ORIGINAL })
@@ -209,5 +235,117 @@ class WatermarkSourcesTest {
             assertFalse(it.message.orEmpty().contains("切换版本"))
             assertFalse(it.message.orEmpty().contains("无水印"))
         }
+    }
+
+    @Test fun knownLiveWithoutSeparateMotionHasOnlyPendingDownloadEligibility() {
+        val imageUrl = "https://p3.douyinpic.com/owned_photo.jpeg?token=a%2Fb%3D#cover"
+        val image = ParsedImage("https://p3.douyinpic.com/old_photo.jpeg", 1440, 1080,
+            listOf(MediaSource(imageUrl, WatermarkMode.CLEAN)), AlbumAssetKind.LIVE,
+            mimeType = "image/jpeg", imageKey = "same-work-photo-0")
+        val original = video(emptyList()).copy(images = listOf(image), coverUrl = image.url)
+        assertFalse(WatermarkSources.available(original, WatermarkMode.CLEAN))
+        assertNull(WatermarkSources.actualMode(original, WatermarkMode.CLEAN))
+        assertThrows(IllegalArgumentException::class.java) { WatermarkSources.select(original, WatermarkMode.CLEAN) }
+        assertTrue(WatermarkSources.requiresEmbeddedLiveVerification(original))
+        assertTrue(WatermarkSources.availableForDownload(original, WatermarkMode.CLEAN))
+        val selected = WatermarkSources.selectForDownload(original, WatermarkMode.CLEAN)
+        assertEquals(original.copy(images = listOf(image.copy(url = imageUrl)), coverUrl = imageUrl), selected)
+        assertNull(selected.images.single().motion)
+        assertEquals("same-work-photo-0", selected.images.single().imageKey)
+        assertEquals(AlbumAssetKind.LIVE, selected.images.single().kind)
+        assertFalse(WatermarkSources.available(selected, WatermarkMode.CLEAN))
+        assertNull(WatermarkSources.actualMode(selected, WatermarkMode.CLEAN))
+        // This separate record API is for the already validated/published file, not the parser.
+        assertEquals(WatermarkMode.CLEAN, WatermarkSources.actualModeForValidatedDownload(selected, WatermarkMode.CLEAN))
+        assertEquals(image.url, original.images.single().url)
+        assertEquals(imageUrl, selected.images.single().mediaSources.single().url)
+    }
+
+    @Test fun pendingLiveDownloadRetainsMixedOrderIdentityAndStrictNeighbourSelection() {
+        fun still(index: Int) = ParsedImage("https://p3.douyinpic.com/old_$index.jpeg",
+            mediaSources = listOf(MediaSource("https://p3.douyinpic.com/new_$index.jpeg", WatermarkMode.CLEAN)),
+            imageKey = "photo-$index")
+        val clip = ParsedMotion(cleanCdn, mediaSources = listOf(MediaSource(cleanCdn, WatermarkMode.CLEAN)))
+        val images = listOf(still(0), still(1).copy(kind = AlbumAssetKind.LIVE),
+            still(2).copy(kind = AlbumAssetKind.DYNAMIC, motion = clip))
+        val original = video(emptyList()).copy(images = images)
+        val selected = WatermarkSources.selectForDownload(original, WatermarkMode.CLEAN)
+        assertEquals(listOf("photo-0", "photo-1", "photo-2"), selected.images.map { it.imageKey })
+        assertEquals(images.map { it.kind }, selected.images.map { it.kind })
+        assertEquals(images.map { it.motion }, selected.images.map { it.motion })
+        assertEquals(images.map { it.mediaSources.single().url }, selected.images.map { it.url })
+        assertEquals(images, original.images)
+        val incompleteNeighbour = original.copy(images = images + still(3).copy(kind = AlbumAssetKind.DYNAMIC))
+        assertFalse(WatermarkSources.availableForDownload(incompleteNeighbour, WatermarkMode.CLEAN))
+        assertThrows(IllegalArgumentException::class.java) {
+            WatermarkSources.selectForDownload(incompleteNeighbour, WatermarkMode.CLEAN)
+        }
+        assertNull(WatermarkSources.actualModeForValidatedDownload(incompleteNeighbour, WatermarkMode.CLEAN))
+    }
+
+    @Test fun pendingLiveRequiresAnExactTrustedNonconflictingCleanImageSource() {
+        val photo = "https://p3.douyinpic.com/owned_photo.jpeg"
+        val invalidSources = listOf(
+            emptyList(), listOf(MediaSource(photo, WatermarkMode.ORIGINAL)),
+            listOf(MediaSource(photo, WatermarkMode.WATERMARKED)),
+            listOf(MediaSource("https://p3.douyinpic.com.evil.example/photo.jpeg", WatermarkMode.CLEAN)),
+            listOf(MediaSource("http://p3.douyinpic.com/photo.jpeg", WatermarkMode.CLEAN)),
+            listOf(MediaSource("https://user:password@p3.douyinpic.com/photo.jpeg", WatermarkMode.CLEAN)),
+            listOf(MediaSource("https://127.0.0.1/photo.jpeg", WatermarkMode.CLEAN)),
+            listOf(MediaSource("", WatermarkMode.CLEAN)),
+            listOf(MediaSource(photo + "?token=" + "x".repeat(32_768), WatermarkMode.CLEAN)),
+            listOf(MediaSource(photo, WatermarkMode.CLEAN), MediaSource("$photo#other", WatermarkMode.WATERMARKED)),
+            listOf(MediaSource("$photo?watermark=1", WatermarkMode.CLEAN)),
+            listOf(MediaSource("$photo?watermark=0&watermark=1", WatermarkMode.CLEAN)),
+            listOf(MediaSource("https://p3.douyinpic.com/photo~watermark-v2:logo.jpeg", WatermarkMode.CLEAN)),
+        )
+        invalidSources.forEach { sources ->
+            val original = video(emptyList()).copy(images = listOf(ParsedImage(photo,
+                mediaSources = sources, kind = AlbumAssetKind.LIVE, imageKey = "owned-slot")))
+            assertFalse(WatermarkSources.requiresEmbeddedLiveVerification(original))
+            assertFalse(WatermarkSources.availableForDownload(original, WatermarkMode.CLEAN))
+            assertThrows(IllegalArgumentException::class.java) { WatermarkSources.selectForDownload(original, WatermarkMode.CLEAN) }
+            assertNull(WatermarkSources.actualModeForValidatedDownload(original, WatermarkMode.CLEAN))
+        }
+    }
+
+    @Test fun pendingLiveDoesNotPermitOtherKindsIncompleteMotionOrOtherRenditions() {
+        val photo = "https://p3.douyinpic.com/owned_photo.jpeg"
+        val image = ParsedImage(photo, mediaSources = listOf(MediaSource(photo, WatermarkMode.CLEAN)), kind = AlbumAssetKind.LIVE)
+        listOf(image.copy(kind = AlbumAssetKind.DYNAMIC), image.copy(motion = ParsedMotion("")),
+            image.copy(motion = ParsedMotion(cleanCdn)), image.copy(motion = ParsedMotion(cleanCdn,
+                mediaSources = listOf(MediaSource(cleanCdn, WatermarkMode.WATERMARKED))))).forEach { incomplete ->
+            val content = video(emptyList()).copy(images = listOf(incomplete))
+            assertFalse(WatermarkSources.requiresEmbeddedLiveVerification(content))
+            assertFalse(WatermarkSources.availableForDownload(content, WatermarkMode.CLEAN))
+            assertThrows(IllegalArgumentException::class.java) { WatermarkSources.selectForDownload(content, WatermarkMode.CLEAN) }
+        }
+        val content = video(emptyList()).copy(images = listOf(image))
+        for (mode in listOf(WatermarkMode.ORIGINAL, WatermarkMode.WATERMARKED)) {
+            assertFalse(WatermarkSources.requiresEmbeddedLiveVerification(content, mode))
+            assertFalse(WatermarkSources.availableForDownload(content, mode))
+            assertThrows(IllegalArgumentException::class.java) { WatermarkSources.selectForDownload(content, mode) }
+            assertNull(WatermarkSources.actualModeForValidatedDownload(content, mode))
+        }
+    }
+
+    @Test fun downloadOnlySelectionDoesNotChangeAnyCompleteOrdinarySourceBehaviour() {
+        val photo = "https://p3.douyinpic.com/complete.jpeg"
+        val motion = ParsedMotion(cleanCdn, mediaSources = listOf(MediaSource(cleanCdn, WatermarkMode.CLEAN)))
+        val base = ParsedImage(photo, mediaSources = listOf(MediaSource(photo, WatermarkMode.CLEAN)), imageKey = "complete-photo")
+        val contents = listOf(video(WatermarkSources.videoSources(listOf(cleanCdn), listOf(markedCdn))),
+            video(emptyList()).copy(images = listOf(base)),
+            video(emptyList()).copy(images = listOf(base.copy(kind = AlbumAssetKind.ANIMATED, mimeType = "image/gif"))),
+            video(emptyList()).copy(images = listOf(base.copy(kind = AlbumAssetKind.LIVE, motion = motion))),
+            video(emptyList()).copy(images = listOf(base.copy(kind = AlbumAssetKind.DYNAMIC, motion = motion))))
+        contents.forEach { content -> WatermarkMode.entries.forEach { mode ->
+            assertFalse(WatermarkSources.requiresEmbeddedLiveVerification(content, mode))
+            assertEquals(WatermarkSources.available(content, mode), WatermarkSources.availableForDownload(content, mode))
+            val ordinary = runCatching { WatermarkSources.select(content, mode) }
+            val download = runCatching { WatermarkSources.selectForDownload(content, mode) }
+            assertEquals(ordinary.isSuccess, download.isSuccess)
+            if (ordinary.isSuccess) assertEquals(ordinary.getOrThrow(), download.getOrThrow())
+            assertEquals(WatermarkSources.actualMode(content, mode), WatermarkSources.actualModeForValidatedDownload(content, mode))
+        } }
     }
 }

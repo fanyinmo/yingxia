@@ -32,6 +32,53 @@ class ColdCdnPipelineTest {
     private val first = "https://$firstHost/fixture%2Fvideo.mp4?token=first_fixture_signature&part=a%2Bb%3D"
     private val second = "https://$secondHost/fixture%2Fvideo.mp4?token=second_fixture_signature&part=a%2Bb%3D"
 
+    @Test fun numericColdRelayCanProbeTransferAndDecodeAnOriginalMp4OnItsConfirmedTlsPort() = withDirectory { directory ->
+        val original = createMp4(directory)
+        val bytes = original.readBytes()
+        val coldNode = "https://n98-v-ncdncold.douyinvod.com/fixture.mp4"
+        val relay = "https://24898382.ydycdn.com:58001/fixture%2Fvideo.mp4?token=fixture_signature&part=a%2Bb%3D"
+        val probeRequests = mutableListOf<String>()
+        val diagnostics = mutableListOf<String>()
+        val probe = MediaProbe(connections = { uri ->
+            probeRequests += uri.toString()
+            when (uri.toString()) {
+                entry -> response(uri, 302, coldNode)
+                coldNode -> response(uri, 302, relay)
+                relay -> response(uri, 206, bytes = bytes)
+                else -> error("Unexpected controlled numeric CDN request: ${uri.host}")
+            }
+        }, cookies = { null })
+        val verified = probe.verify(content(), diagnostics::add)
+        assertEquals(listOf(entry, coldNode, relay), probeRequests)
+        assertEquals(relay, verified.mediaUrl)
+        assertTrue(diagnostics.any { it.contains("host=24898382.ydycdn.com port=58001 allowed=true") })
+        assertFalse(diagnostics.any { it.contains("fixture_signature") || it.contains("token=") })
+
+        val transferRequests = mutableListOf<String>()
+        val transfer = MediaTransfer(connections = { uri ->
+            transferRequests += uri.toString()
+            when (uri.toString()) {
+                entry -> response(uri, 302, coldNode)
+                coldNode -> response(uri, 302, relay)
+                relay -> response(uri, 200, bytes = bytes)
+                else -> error("Unexpected controlled numeric CDN request: ${uri.host}")
+            }
+        }, cookies = { null })
+        val destination = File(directory, "numeric-relay-received.mp4")
+        val size = transfer.fetch(entry, destination, bytes.size.toLong() + 1, "自制视频",
+            validateUrl = { WatermarkSources.requireSelectedUrl(it, WatermarkMode.CLEAN, verified.mediaSources) }) { _, _ -> }
+        assertEquals(listOf(entry, coldNode, relay), transferRequests)
+        assertEquals(bytes.size.toLong(), size)
+        assertArrayEquals(bytes, destination.readBytes())
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(destination.absolutePath)
+            assertTrue(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)!!.toLong() in 3_800L..4_200L)
+            val frame = checkNotNull(retriever.getFrameAtTime(500_000L, MediaMetadataRetriever.OPTION_CLOSEST))
+            try { assertTrue(frame.width > 0 && frame.height > 0) } finally { frame.recycle() }
+        } finally { retriever.release() }
+    }
+
     @Test fun confirmedColdCdnSourceCanRefreshThroughTheSharedTransferAndDecodeLocally() = withDirectory { directory ->
         val mp4 = createMp4(directory)
         val bytes = mp4.readBytes()
@@ -158,15 +205,15 @@ class ColdCdnPipelineTest {
         mediaSources = listOf(MediaSource(entry, WatermarkMode.CLEAN)))
 
     private suspend fun createMp4(directory: File): File {
-        fun asset(name: String) = File(directory, name).also { file ->
-            instrumentation.context.assets.open("album_test/$name").use { input ->
-                file.outputStream().use { input.copyTo(it) }
+        return File(directory, "fixed_red_blue_4s.mp4").also { output ->
+            instrumentation.context.assets.open("motion_test/fixed_red_blue_4s.mp4").use { input ->
+                output.outputStream().use { input.copyTo(it) }
             }
+            val sourceHash = java.security.MessageDigest.getInstance("SHA-256").digest(output.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            assertEquals("Fixed four-second CDN source differs from its independent manifest",
+                "b70fa2a2fbaee5cf936aef489b35e47071d837fa34bb5c858c6a9c0920ab1899", sourceHash)
         }
-        val images = listOf(asset("first_red.png"), asset("second_blue.png")).map(AlbumMediaValidation::image)
-        val audio = asset("short_bgm.m4a")
-        return AlbumVideoComposer(context).compose(images, audio, AlbumMediaValidation.audioDurationMs(audio),
-            2, directory, {})
     }
 
     private fun withDirectory(body: suspend (File) -> Unit) = runBlocking(Dispatchers.IO) {

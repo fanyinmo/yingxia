@@ -10,9 +10,12 @@ import android.os.Looper
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.Clock
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Presentation
+import androidx.media3.effect.DefaultVideoFrameProcessor
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultAssetLoaderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
@@ -31,6 +34,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.File
+import java.util.UUID
 
 /** Android's public Media3 codec pipeline; all inputs and the MP4 remain on this phone. */
 @OptIn(UnstableApi::class)
@@ -53,21 +57,56 @@ internal class AlbumVideoComposer(private val context: Context) {
         directory: File,
         onProgress: suspend (Int) -> Unit,
     ): File {
-        val durationMs = AlbumMediaPolicy.durationMs(images.size, imageSeconds)
-        // A bounded, oriented JPEG source prevents huge originals from exhausting decoder/GL memory.
-        val inputs = images.mapIndexed { index, image ->
-            currentCoroutineContext().ensureActive()
-            prepareImage(image.file, File(directory, "frame_$index.jpg"))
+        return composeEntries(images.map { LocalAlbumEntry(it) }, audio, audioDurationMs,
+            images.map { imageSeconds * 1000L }, directory, onProgress)
+    }
+
+    suspend fun composeEntries(
+        entries: List<LocalAlbumEntry>, audio: File, audioDurationMs: Long,
+        durationsMs: List<Long>, directory: File, onProgress: suspend (Int) -> Unit,
+    ): File {
+        require(directory.isDirectory) { "合成临时目录不可用" }
+        val ownedDirectory = File(directory, "composition_${UUID.randomUUID()}")
+        check(ownedDirectory.mkdir()) { "无法创建合成临时目录" }
+        var result: File? = null
+        try {
+            return composeOwnedEntries(entries, audio, audioDurationMs, durationsMs, ownedDirectory, onProgress)
+                .also { result = it }
+        } finally {
+            ownedDirectory.listFiles()?.filter { it != result }?.forEach { it.delete() }
+            if (result == null) ownedDirectory.delete()
         }
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(inputs.first().absolutePath, bounds)
-        val (width, height) = AlbumMediaPolicy.canvas(bounds.outWidth, bounds.outHeight)
+    }
+
+    private suspend fun composeOwnedEntries(
+        entries: List<LocalAlbumEntry>, audio: File, audioDurationMs: Long,
+        durationsMs: List<Long>, directory: File, onProgress: suspend (Int) -> Unit,
+    ): File {
+        require(entries.size == durationsMs.size && entries.isNotEmpty()) { "素材时长与顺序不完整" }
+        require(durationsMs.all { it > 0 } && durationsMs.sum() <= 900_000L) { "合成视频时长无效或超过 15 分钟" }
+        val durationMs = durationsMs.sum()
+        // A bounded, oriented JPEG source prevents huge originals from exhausting decoder/GL memory.
+        val inputs = entries.mapIndexed { index, entry ->
+            currentCoroutineContext().ensureActive()
+            if (entry.motionVideo != null) entry.motionVideo
+            else if (entry.image.animated) AnimatedImageVideoConverter(context).convert(entry.image,
+                File(directory, "animation_$index.mp4"))
+            else prepareImage(entry.image.file, File(directory, "frame_$index.jpg"))
+        }
+        val (width, height) = AlbumMediaPolicy.canvas(entries.first().image.width, entries.first().image.height)
         val presentation = Presentation.createForWidthAndHeight(width, height, Presentation.LAYOUT_SCALE_TO_FIT)
-        val imageItems = inputs.map { file ->
-            val item = MediaItem.Builder().setUri(Uri.fromFile(file)).setMimeType(MimeTypes.IMAGE_JPEG)
-                .setImageDurationMs(imageSeconds * 1_000L).build()
-            EditedMediaItem.Builder(item).setFrameRate(30).setRemoveAudio(true)
-                .setEffects(Effects(emptyList(), listOf(presentation))).build()
+        val imageItems = inputs.flatMapIndexed { index, file ->
+            val isDynamic = entries[index].motionVideo != null || entries[index].image.animated
+            val durations = if (isDynamic) AlbumTiming.segments(VideoGifConverter().readDurationMs(file), durationsMs[index])
+                else listOf(durationsMs[index])
+            durations.map { duration ->
+                val builder = MediaItem.Builder().setUri(Uri.fromFile(file))
+                if (isDynamic) builder.setClippingConfiguration(MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(0).setEndPositionMs(duration).build())
+                else builder.setMimeType(MimeTypes.IMAGE_JPEG).setImageDurationMs(duration)
+                EditedMediaItem.Builder(builder.build()).setFrameRate(30).setRemoveAudio(true)
+                    .setEffects(Effects(emptyList(), listOf(presentation))).build()
+            }
         }
         val audioItem = MediaItem.Builder().setUri(Uri.fromFile(audio))
             .setClippingConfiguration(MediaItem.ClippingConfiguration.Builder()
@@ -85,6 +124,11 @@ internal class AlbumVideoComposer(private val context: Context) {
             withContext(Dispatchers.Main.immediate) {
                 currentCoroutineContext().ensureActive()
                 current = Transformer.Builder(context).setLooper(Looper.getMainLooper())
+                    // Keep SDR stills and clips in their original transfer space. The default
+                    // linear working space visibly darkens static sections on this pipeline.
+                    .setVideoFrameProcessorFactory(DefaultVideoFrameProcessor.Factory.Builder()
+                        .setSdrWorkingColorSpace(DefaultVideoFrameProcessor.WORKING_COLOR_SPACE_ORIGINAL).build())
+                    .setAssetLoaderFactory(DefaultAssetLoaderFactory(context, AlbumDecoderFactory(context), Clock.DEFAULT, null))
                     .setVideoMimeType(MimeTypes.VIDEO_H264).setAudioMimeType(MimeTypes.AUDIO_AAC)
                     .setMaxDelayBetweenMuxerSamplesMs(60_000)
                     .addListener(object : Transformer.Listener {

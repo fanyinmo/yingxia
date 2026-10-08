@@ -7,9 +7,17 @@ import java.util.Locale
 /** Source selection never modifies signed CDN links or substitutes an unrelated work. */
 object WatermarkSources {
     fun videoSources(playUrls: List<String>, downloadUrls: List<String> = emptyList(),
-        unclassifiedUrls: List<String> = emptyList(), mediaIds: List<String> = emptyList()): List<MediaSource> {
+        unclassifiedUrls: List<String> = emptyList(), mediaIds: List<String> = emptyList(),
+        displayPlaybackUrls: List<String> = emptyList()): List<MediaSource> {
         val play = allowed(playUrls)
         val download = allowed(downloadUrls)
+        // An exactly owned web display role is evidence only for addresses also in its play field.
+        // Callers that have not confirmed this role retain the original video classification rules.
+        val display = allowed(displayPlaybackUrls).filter { url ->
+            url in play && !ambiguousSwitch(url) && explicitMode(url) != WatermarkMode.WATERMARKED &&
+                !isMarkedPlaybackEntry(url)
+        }
+        val displayedRequests = display.map { withoutFragment(URI(it)) }.toSet()
         val sources = mutableListOf<MediaSource>()
         (play + download + allowed(unclassifiedUrls)).distinct().forEach { sources += MediaSource(it, WatermarkMode.ORIGINAL) }
         (play + download + allowed(unclassifiedUrls)).distinct().forEach { url ->
@@ -19,7 +27,8 @@ object WatermarkSources {
         }
         // An independent playback address can be selected without rewriting a signed download URL.
         // A lone unclassified CDN URL is not sufficient evidence for the clean option.
-        download.filterNot { playbackVariants(it).isNotEmpty() || ambiguousSwitch(it) }.forEach { url ->
+        download.filterNot { playbackVariants(it).isNotEmpty() || ambiguousSwitch(it) ||
+            withoutFragment(URI(it)) in displayedRequests }.forEach { url ->
             sources += MediaSource(url, explicitMode(url) ?: WatermarkMode.WATERMARKED)
         }
         if (download.isNotEmpty()) play.filterNot {
@@ -27,6 +36,7 @@ object WatermarkSources {
         }.forEach { url ->
             sources += MediaSource(url, explicitMode(url) ?: WatermarkMode.CLEAN)
         }
+        display.forEach { url -> sources += MediaSource(url, WatermarkMode.CLEAN) }
         // Only opaque media identifiers read from this work's video address may form platform entries.
         mediaIds.filter(::isMediaId).distinct().take(16).forEach { id ->
             sources += playbackVariants("https://aweme.snssdk.com/aweme/v1/play/?video_id=$id")
@@ -59,8 +69,34 @@ object WatermarkSources {
     }
 
     fun available(content: ParsedVideo, mode: WatermarkMode): Boolean =
-        if (content.isAlbum) content.images.all { choose(it.url, it.mediaSources, mode) != null }
+        if (content.isAlbum) unavailableAlbumReason(content, mode) == null
         else candidates(content, mode).isNotEmpty()
+
+    /** Download eligibility is not proof that a missing live clip has been acquired.
+     * Only a known LIVE image with no separate motion object may await inspection of
+     * its actual downloaded JPEG. Ordinary [available] remains a complete-source check.
+     */
+    fun availableForDownload(content: ParsedVideo, mode: WatermarkMode): Boolean {
+        if (!requiresEmbeddedLiveVerification(content, mode)) return available(content, mode)
+        return runCatching { selectForDownload(content, mode) }.isSuccess
+    }
+
+    /** A pending file check, never an AVAILABLE dynamic-source state. */
+    fun requiresEmbeddedLiveVerification(content: ParsedVideo, mode: WatermarkMode = WatermarkMode.CLEAN): Boolean =
+        content.isAlbum && content.images.any { pendingEmbeddedLiveUrl(it, mode) != null }
+
+    fun unavailableAlbumReason(content: ParsedVideo, mode: WatermarkMode): String? {
+        for ((index, image) in content.images.withIndex()) {
+            if (choose(image.url, image.mediaSources, mode) == null)
+                return "第 ${index + 1} 张图片暂未读取到可用地址，请重新解析"
+            if (image.kind in listOf(AlbumAssetKind.LIVE, AlbumAssetKind.DYNAMIC) || image.motion != null) {
+                val motion = image.motion
+                if (motion == null || choose(motion.url, motion.mediaSources, mode) == null)
+                    return "第 ${index + 1} 张动态图片未提供可下载的动态片段，请重新解析后重试"
+            }
+        }
+        return null
+    }
 
     /** All alternatives remain in the requested rendition; direct CDN URLs precede playback entries. */
     fun candidates(content: ParsedVideo, mode: WatermarkMode): List<String> {
@@ -76,13 +112,38 @@ object WatermarkSources {
             val images = content.images.mapIndexed { index, image ->
                 val url = choose(image.url, image.mediaSources, mode)
                     ?: throw IllegalArgumentException("第 ${index + 1} 张图片暂未读取到可用地址，请重新解析")
-                image.copy(url = url)
+                val dynamic = image.kind in listOf(AlbumAssetKind.LIVE, AlbumAssetKind.DYNAMIC) || image.motion != null
+                val motion = image.motion?.let { source ->
+                    val motionUrl = choose(source.url, source.mediaSources, mode)
+                        ?: throw IllegalArgumentException("第 ${index + 1} 张动态图片未提供可下载的动态片段，请重新解析后重试")
+                    source.copy(url = motionUrl)
+                }
+                require(!dynamic || motion != null) { "第 ${index + 1} 张动态图片未提供可下载的动态片段，请重新解析后重试" }
+                image.copy(url = url, motion = motion, kind = if (dynamic && image.kind == AlbumAssetKind.STATIC) AlbumAssetKind.DYNAMIC else image.kind)
             }
             return content.copy(images = images, coverUrl = images.first().url)
         }
         val url = candidates(content, mode).firstOrNull()
             ?: throw IllegalArgumentException("暂未读取到可用的视频地址，请重新解析")
         return content.copy(mediaUrl = url)
+    }
+
+    /** Select only download candidates; the downloader must reject a known LIVE
+     * still cover unless its actual file contains verified motion. A missing or
+     * incomplete separate motion object is not silently replaced by this route.
+     */
+    fun selectForDownload(content: ParsedVideo, mode: WatermarkMode): ParsedVideo {
+        if (!content.isAlbum || mode != WatermarkMode.CLEAN ||
+            content.images.none { it.kind == AlbumAssetKind.LIVE && it.motion == null }) return select(content, mode)
+        val images = content.images.mapIndexed { index, image ->
+            if (image.kind == AlbumAssetKind.LIVE && image.motion == null) {
+                val url = pendingEmbeddedLiveUrl(image, mode)
+                    ?: throw IllegalArgumentException("第 ${index + 1} 张动态图片未提供可核验的图片地址，请重新解析后重试")
+                // Retain kind, null motion, source identity and array position until real-file verification.
+                image.copy(url = url)
+            } else select(content.copy(images = listOf(image)), mode).images.single()
+        }
+        return content.copy(images = images, coverUrl = images.first().url)
     }
 
     /** Check every real request, including fresh redirects that were not seen by the header probe. */
@@ -96,7 +157,7 @@ object WatermarkSources {
                 runCatching { withoutFragment(URI(source.url)) == request }.getOrDefault(false)
         }
         val explicit = explicitMode(url)
-        val markedEntry = uri.host.equals("aweme.snssdk.com", true) && uri.rawPath == "/aweme/v1/playwm/"
+        val markedEntry = MediaUrls.isPlaybackEntry(url) && uri.rawPath == "/aweme/v1/playwm/"
         require(!conflicting && !ambiguousSwitch(url) &&
             (explicit == null || explicit == mode) && !(mode == WatermarkMode.CLEAN && markedEntry)) {
             "媒体地址与解析结果不一致，请重新解析"
@@ -115,6 +176,24 @@ object WatermarkSources {
         return requested.takeIf { classified }
     }
 
+    /** Use only after all actual media have passed validation and been published.
+     * This classifies the selected source rendition, not native-gallery compatibility
+     * or dynamic-source acquisition. Keep [actualMode] strict for parser/preview use.
+     */
+    fun actualModeForValidatedDownload(content: ParsedVideo, requested: WatermarkMode): WatermarkMode? =
+        actualMode(content, requested) ?: WatermarkMode.CLEAN.takeIf {
+            requested == WatermarkMode.CLEAN && requiresEmbeddedLiveVerification(content, requested) &&
+                availableForDownload(content, requested)
+        }
+
+    private fun pendingEmbeddedLiveUrl(image: ParsedImage, mode: WatermarkMode): String? {
+        if (mode != WatermarkMode.CLEAN || image.kind != AlbumAssetKind.LIVE || image.motion != null) return null
+        return image.mediaSources.firstOrNull { source ->
+            source.mode == WatermarkMode.CLEAN && source.url.length <= 32_768 &&
+                runCatching { requireSelectedUrl(source.url, mode, image.mediaSources) }.isSuccess
+        }?.url
+    }
+
     private fun choose(original: String, sources: List<MediaSource>, mode: WatermarkMode): String? =
         sources.firstOrNull { it.mode == mode && it.url.length <= 32_768 && MediaUrls.isAllowed(it.url) }?.url
             ?: original.takeIf { mode == WatermarkMode.ORIGINAL && MediaUrls.isAllowed(it) }
@@ -124,6 +203,11 @@ object WatermarkSources {
     }.distinct().take(limit)
     private fun unique(sources: List<MediaSource>) = sources.distinctBy { it.url to it.mode }.take(640)
     private fun withoutFragment(uri: URI) = URI(uri.toString().substringBefore('#'))
+
+    private fun isMarkedPlaybackEntry(url: String): Boolean = runCatching {
+        val uri = URI(url)
+        MediaUrls.isPlaybackEntry(url) && uri.rawPath == "/aweme/v1/playwm/"
+    }.getOrDefault(false)
 
     private fun ambiguousSwitch(url: String): Boolean {
         val query = runCatching { URI(url).rawQuery }.getOrNull().orEmpty()
@@ -154,8 +238,7 @@ object WatermarkSources {
 
     private fun playbackVariants(url: String): List<MediaSource> {
         val uri = runCatching { MediaUrls.requireAllowed(url) }.getOrNull() ?: return emptyList()
-        if (!uri.host.equals("aweme.snssdk.com", true) ||
-            uri.rawPath !in listOf("/aweme/v1/play/", "/aweme/v1/playwm/")) return emptyList()
+        if (!MediaUrls.isPlaybackEntry(url)) return emptyList()
         if (ambiguousSwitch(url)) return emptyList()
         val parts = uri.rawQuery.orEmpty().split('&').filter(String::isNotBlank)
         val ids = parts.filter { decode(it.substringBefore('=')) == "video_id" }

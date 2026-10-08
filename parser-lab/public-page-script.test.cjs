@@ -31,6 +31,39 @@ function player(extra = {}) {
     readyState: 1, videoWidth: 1920, videoHeight: 1080, duration: 83.916,
     dataset: {}, loadCount: 0, load() { this.loadCount++; }, ...extra};
 }
+
+test('an observed official mobile playback mirror can borrow only matching opaque media metadata', () => {
+  const videoId = 'v0200f0000owned_mobile_video';
+  const target = item();
+  target.video.play_addr.uri = videoId;
+  const mirror = `https://www.iesdouyin.com/aweme/v1/playwm/?video_id=${videoId}&ratio=720p&signature=a%2Bb%3D`;
+  const pending = player({currentSrc: mirror, src: mirror, readyState: 0, videoWidth: 0, videoHeight: 0, duration: NaN});
+  const result = run(route(id, {videoInfoRes: {item_list: [target]}}), [pending]);
+  const candidate = result.candidates.find(candidate => candidate.url === mirror);
+  assert.equal(candidate.owner, id);
+  assert.equal(candidate.sourceField, 'dom');
+  assert.equal(candidate.ready, 1);
+  assert.equal(candidate.width, 1920);
+  assert.equal(candidate.height, 1080);
+  assert.equal(candidate.duration, 83.916);
+  assert.equal(candidate.url, mirror);
+});
+
+test('unmatched duplicated or arbitrary DOM URLs cannot borrow this work metadata', () => {
+  const videoId = 'v0200f0000owned_mobile_video';
+  const target = item();
+  target.video.play_addr.uri = videoId;
+  const prefix = 'https://www.iesdouyin.com/aweme/v1/playwm/?video_id=';
+  for (const url of [prefix + 'v0200f0000another_video', prefix + videoId + '&video_id=' + videoId,
+    `https://other.iesdouyin.com/aweme/v1/playwm/?video_id=${videoId}`, media]) {
+    const result = run(route(id, {videoInfoRes: {item_list: [target]}}),
+      [player({currentSrc: url, src: url, readyState: 0, videoWidth: 0, videoHeight: 0, duration: NaN})]);
+    const candidate = result.candidates.find(candidate => candidate.url === url);
+    // An already declared structured CDN candidate has its own metadata; the DOM cannot add any.
+    if (url === media) assert.equal(candidate.sourceField, 'play_addr');
+    else { assert.equal(candidate.ready, 0); assert.equal(candidate.width, 0); assert.equal(candidate.duration, 0); }
+  }
+});
 const photo = 'https://p3-sign.douyinpic.com/tos-cn-i/example.webp?token=keep-exact';
 const music = 'https://sf3-cdn-tos.douyinstatic.com/obj/ies-music/example.mp3';
 function album(aweme_id = id) {
@@ -39,6 +72,222 @@ function album(aweme_id = id) {
     {url_list: ['https://p6-sign.byteimg.com/tos-cn-i/second.jpg'], width: 1440, height: 1080},
   ], music: {play_url: {url_list: [music]}, duration: 30}};
 }
+
+function liveClip(extra = {}) {
+  return {width: 1080, height: 1440, duration: 2400, video_id: 'owned-photo-clip-abc123',
+    play_addr: {uri: 'owned-photo-clip-abc123', url_list: [media]},
+    download_addr: {url_list: [`${media}&watermark=1`]}, ...extra};
+}
+
+test('mixed albums retain each photo clip without borrowing the album soundtrack', () => {
+  const entry = album();
+  entry.images[0].video = liveClip();
+  entry.images.push({url_list: ['https://p3-sign.douyinpic.com/animation.GIF?signature=a%2Bb'], width: 640, height: 480});
+  entry.video = {duration: 30000, play_addr: {uri: music}};
+  const result = run({item_list: [entry]});
+  assert.equal(result.albums.length, 1);
+  const images = result.albums[0].images;
+  assert.equal(images.length, 3);
+  assert.equal(images[0].kind, 'DYNAMIC');
+  assert.deepEqual(images[0].motion, {playUrls: [media], downloadUrls: [`${media}&watermark=1`],
+    mediaIds: ['owned-photo-clip-abc123'], width: 1080, height: 1440, durationSeconds: 2.4});
+  assert.equal(images[1].motion, undefined);
+  assert.equal(images[2].kind, undefined);
+  assert.equal(images[2].mimeType, 'image/gif');
+  assert.deepEqual(result.albums[0].bgmUrls, [music]);
+  assert.equal(result.candidates.length, 0);
+  assert.ok(!JSON.stringify(images[0].motion).includes(music));
+});
+
+test('live clips in bitrate variants are paired by the exact photo URI', () => {
+  const entry = album();
+  entry.images[0].uri = 'tos-cn-i/owned-photo';
+  entry.images[1].uri = 'tos-cn-i/second-photo';
+  entry.img_bitrate = [{images: [
+    {uri: 'tos-cn-i/second-photo', video: liveClip({video_id: 'owned-second-clip-abc123',
+      play_addr: {uri: 'owned-second-clip-abc123', url_list: [`${media}&second=true`]}})},
+    {uri: 'tos-cn-i/other-photo', video: liveClip()},
+    {video: liveClip()},
+  ]}];
+  const images = run({item_list: [entry]}).albums[0].images;
+  assert.equal(images[0].motion, undefined);
+  assert.equal(images[1].kind, 'DYNAMIC');
+  assert.deepEqual(images[1].motion.playUrls, [`${media}&second=true`]);
+  assert.deepEqual(images[1].motion.mediaIds, ['owned-second-clip-abc123']);
+});
+
+test('a recommendation clip and a work-level audio video cannot identify a live photo', () => {
+  const entry = album();
+  entry.video = liveClip();
+  const other = album(otherId);
+  other.images[0].uri = entry.images[0].uri = 'tos-cn-i/shared-name';
+  other.images[0].video = liveClip();
+  const images = run({item_list: [other, entry]}).albums[0].images;
+  assert.ok(images.every(image => !image.motion && !image.kind));
+});
+
+test('an untyped dynamic placeholder remains marked without fabricating a clip from its image URI', () => {
+  const entry = album();
+  entry.images[0].uri = 'static-photo-id-abc123';
+  entry.images[0].video = {};
+  const image = run({item_list: [entry]}).albums[0].images[0];
+  assert.equal(image.kind, 'DYNAMIC');
+  assert.deepEqual(image.motion.playUrls, []);
+  assert.deepEqual(image.motion.downloadUrls, []);
+  assert.deepEqual(image.motion.mediaIds, []);
+  assert.equal(image.motion.durationSeconds, 0);
+});
+
+test('clip sources preserve valid signed URLs while rejecting insecure URL tricks', () => {
+  const entry = album();
+  const exact = 'https://v5.douyinvod.com/live/photo.mp4?signature=A%2Bb%3D&x=&x=1';
+  entry.images[0].video = liveClip({play_addr: {url_list: [exact, 'http://v5.douyinvod.com/live.mp4',
+    'https://user@v5.douyinvod.com/live.mp4', 'https://v5.douyinvod.com:8443/live.mp4']},
+    play_addr_h264: {url_list: [`${exact}&codec=h264`]}, download_addr: undefined});
+  const image = run({item_list: [entry]}).albums[0].images[0];
+  assert.deepEqual(image.motion.playUrls, [exact, `${exact}&codec=h264`]);
+});
+
+test('PNG and WebP remain undecided until native bytes confirm animation', () => {
+  const entry = album();
+  entry.images[0].url_list = ['https://p3-sign.douyinpic.com/animation.webp?format=gif'];
+  entry.images[1].url_list = ['https://p3-sign.douyinpic.com/animation.png'];
+  const images = run({item_list: [entry]}).albums[0].images;
+  assert.ok(images.every(image => !image.kind && !image.mimeType && !image.motion));
+});
+
+test('a GIF suffix does not require animation because a valid GIF can have just one frame', () => {
+  const entry = album();
+  entry.images[0].url_list = ['https://p3-sign.douyinpic.com/single-frame.gif'];
+  const image = run({item_list: [entry]}).albums[0].images[0];
+  assert.equal(image.mimeType, 'image/gif');
+  assert.equal(image.kind, undefined);
+  assert.equal(image.motion, undefined);
+});
+
+test('the official note loader shape supplies only the matching work photo clip', () => {
+  const entry = album();
+  entry.images[0].video = liveClip();
+  const other = album(otherId);
+  other.images[1].video = liveClip({play_addr: {url_list: [`${media}&wrong=true`]}});
+  const data = {loaderData: {'note_layout': null, 'note_(id)/page': {itemId: id,
+    renderInSSR: 1, host: 'www.iesdouyin.com', videoInfoRes: {item_list: [entry, other]}}}, errors: null};
+  const result = run(data, [], {page: `https://www.iesdouyin.com/share/note/${id}/`});
+  assert.equal(result.stats.itemMatches, true);
+  assert.equal(result.albums.length, 1);
+  assert.deepEqual(result.albums[0].images[0].motion.playUrls, [media]);
+  assert.equal(result.albums[0].images[1].motion, undefined);
+  assert.ok(!JSON.stringify(result.albums).includes('wrong=true'));
+});
+
+test('later same-work photo hydration joins only by URI even when its order changes', () => {
+  const early = album();
+  early.images[0].uri = 'tos-cn-i/first';
+  early.images[1].uri = 'tos-cn-i/second';
+  const late = album();
+  late.images = [{uri: 'tos-cn-i/second', url_list: [photo], video: liveClip()},
+    {uri: 'tos-cn-i/first', url_list: [photo]}];
+  const missingUri = album();
+  missingUri.images[0].video = liveClip({play_addr: {url_list: [`${media}&unpaired=true`]}});
+  const result = run({copies: [early, late, missingUri]});
+  assert.equal(result.albums[0].images[0].motion, undefined);
+  assert.deepEqual(result.albums[0].images[1].motion.playUrls, [media]);
+  assert.ok(!JSON.stringify(result.albums[0]).includes('unpaired=true'));
+});
+
+test('unverified live flags never convert a still photo or soundtrack into a clip', () => {
+  const entry = album();
+  entry.images[0].live_photo_type = 1;
+  entry.images[0].is_live = true;
+  entry.video = liveClip();
+  const images = run({item_list: [entry]}).albums[0].images;
+  assert.ok(images.every(image => !image.motion && !image.kind));
+});
+
+test('the official slides loader accepts owned video, live, and default clips but rejects an image placeholder', () => {
+  const entry = album();
+  entry.images = [1, 2, 3, 4].map((clip_type, index) => ({uri: `photo-${index}`, url_list: [photo],
+    clip_type, video: liveClip({play_addr: {url_list: [`${media}&clip=${index}`]}})}));
+  const result = run({loaderData: {'slides_(id)/page': {itemId: id, slidesInfoRes: {item_list: [entry]}}}}, [],
+    {page: `https://www.iesdouyin.com/share/slides/${id}/`});
+  const images = result.albums[0].images;
+  assert.equal(images.length, 4);
+  for (const index of [0, 2, 3]) {
+    assert.equal(images[index].kind, index === 0 ? 'ANIMATED' : index === 2 ? 'LIVE' : 'DYNAMIC');
+    assert.deepEqual(images[index].motion.playUrls, [`${media}&clip=${index}`]);
+  }
+  assert.equal(images[1].kind, undefined);
+  assert.equal(images[1].motion, undefined);
+  assert.equal(result.candidates.length, 0);
+});
+
+test('official LivePhotoClip without its clip stays live and never borrows a soundtrack or adjacent clip', () => {
+  const entry = album();
+  entry.images[0].clip_type = 3;
+  entry.images[0].uri = 'still-cover-only';
+  entry.images[1].video = liveClip();
+  entry.video = liveClip();
+  const images = run({item_list: [entry]}).albums[0].images;
+  assert.equal(images[0].kind, 'LIVE');
+  assert.equal(images[0].motion, undefined);
+  assert.equal(images[1].kind, 'DYNAMIC');
+  assert.deepEqual(images[1].motion.playUrls, [media]);
+});
+
+test('a missing official live clip in a URI variant can flag only that exact target photo', () => {
+  const entry = album();
+  entry.images[0].uri = 'first-photo';
+  entry.images[1].uri = 'second-photo';
+  entry.img_bitrate = [{images: [{uri: 'second-photo', clip_type: 3},
+    {uri: 'unrelated-photo', clip_type: 3}, {clip_type: 3}]}];
+  const other = album(otherId);
+  other.images[0].uri = 'first-photo';
+  other.images[0].clip_type = 3;
+  const images = run({item_list: [other, entry]}).albums[0].images;
+  assert.equal(images[0].kind, undefined);
+  assert.equal(images[0].motion, undefined);
+  assert.equal(images[1].kind, 'LIVE');
+  assert.equal(images[1].motion, undefined);
+});
+
+test('official ImageClip variants cannot grant their placeholder video to a static photo', () => {
+  const entry = album();
+  entry.images[0].uri = 'first-photo';
+  entry.images[0].clip_type = 2;
+  entry.images[0].video = liveClip();
+  entry.images[1].uri = 'second-photo';
+  entry.img_bitrate = [{images: [{uri: 'second-photo', clip_type: 2, video: liveClip()}]}];
+  entry.video = liveClip();
+  const images = run({item_list: [entry]}).albums[0].images;
+  assert.ok(images.every(image => !image.motion && !image.kind));
+});
+
+test('unknown and coerced clip tags do not count as official live or playable clips in a mixed album', () => {
+  const entry = album();
+  entry.images = [5, 0, '3', true, null].map(clip_type => ({url_list: [photo], clip_type,
+    live_photo_type: 1, video: liveClip()}));
+  entry.images.push({url_list: [photo], clip_type: 3});
+  const images = run({item_list: [entry]}).albums[0].images;
+  assert.equal(images.length, 6);
+  assert.ok(images.slice(0, 5).every(image => !image.kind && !image.motion));
+  assert.equal(images[5].kind, 'LIVE');
+  assert.equal(images[5].motion, undefined);
+});
+
+test('late matching-work hydration can disclose a missing live clip by URI without changing photo order', () => {
+  const early = album();
+  early.images[0].uri = 'first-photo';
+  early.images[1].uri = 'second-photo';
+  const late = album();
+  late.images = [{uri: 'second-photo', clip_type: 3, url_list: [photo]},
+    {uri: 'first-photo', clip_type: 2, video: liveClip(), url_list: [photo]}];
+  const result = run({copies: [early, late]});
+  const images = result.albums[0].images;
+  assert.equal(images[0].kind, undefined);
+  assert.equal(images[0].motion, undefined);
+  assert.equal(images[1].kind, 'LIVE');
+  assert.equal(images[1].motion, undefined);
+});
 
 test('actual empty mobile response keyshape is diagnosed without pretending to resolve', () => {
   // Key shape from the captured public response; request identifiers and token values omitted.
@@ -319,7 +568,7 @@ test('a single display-only note keeps its source role and own soundtrack withou
   assert.equal(result.albums.length, 1);
   assert.equal(result.albums[0].owner, id);
   assert.deepEqual(result.albums[0].images[0], {
-    urls: [signed], displayUrls: [signed], downloadUrls: [], width: 1080, height: 1440,
+    urls: [signed], displayUrls: [signed], downloadUrls: [], imageKey: 'one-photo', width: 1080, height: 1440,
   });
   assert.deepEqual(result.albums[0].bgmUrls, [music]);
   assert.equal(result.albums[0].bgmDuration, 12);

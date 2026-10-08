@@ -6,12 +6,18 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -34,6 +40,9 @@ internal fun SettingsScreen(model: SaverViewModel, appearance: AppearanceStore, 
             }
             Text("首页可以临时填写文件名；图集自动添加图片序号。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } }
+        item { SectionCard {
+            StaticImageDurationSettingsControls(model.staticImageSeconds, !model.busy) { model.staticImageSeconds = it }
+        } }
         item { SectionCard { PreviewSettingsControls() } }
         item { SectionCard { AppearanceControls(appearance) } }
         item { SectionCard {
@@ -51,4 +60,30 @@ internal fun SettingsScreen(model: SaverViewModel, appearance: AppearanceStore, 
             }) { Text("复制问题诊断") }
         } }
     }
+}
+
+@Composable
+internal fun StaticImageDurationSettingsControls(seconds: Double, enabled: Boolean = true, onValue: (Double) -> Unit) {
+    var text by rememberSaveable(seconds) { mutableStateOf(AlbumDurationUiPolicy.seconds(seconds)) }
+    val parsed = text.takeUnless { it.endsWith('.') }?.let(AlbumDurationUiPolicy::parseOverride)
+    Text("静图默认播放时长", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    OutlinedTextField(value = text, onValueChange = { input ->
+        if (AlbumDurationUiPolicy.acceptsInput(input)) {
+            text = input
+            if (!input.endsWith('.')) AlbumDurationUiPolicy.parseOverride(input)?.let(onValue)
+        }
+    }, enabled = enabled, singleLine = true, shape = RoundedCornerShape(12.dp),
+        label = { Text("每张静图默认时长") }, suffix = { Text("秒") }, isError = parsed == null,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth().semantics { contentDescription = "每张静图默认时长" },
+        supportingText = { Text(if (parsed != null) "0.1–120 秒，精确到 0.1 秒，自动保存"
+            else "请输入 0.1–120 之间的秒数，精确到 0.1 秒；未保存，仍使用 ${AlbumDurationUiPolicy.seconds(seconds)} 秒") })
+    Box(Modifier.fillMaxWidth().semantics { contentDescription = "静图默认播放时长滑块" }) {
+        RoundDurationSlider(seconds.toFloat(), enabled) { value ->
+            text = AlbumDurationUiPolicy.seconds(value.toDouble())
+            onValue(value.toDouble())
+        }
+    }
+    Text("静图自动模式的图片序列 GIF 和 BGM 合成视频使用此时长；动态自动模式仍使用各自原时长。图集卡片的统一播放时长优先。",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

@@ -72,13 +72,14 @@ internal fun HistoryScreen(model: SaverViewModel) {
         items(filtered, key = { it.uri }) { saved -> SectionCard {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (selecting) Checkbox(saved.uri in selected, onCheckedChange = { checked -> selected = if (checked) selected + saved.uri else selected - saved.uri })
-                MediaThumbnail(saved.coverUri.ifBlank { saved.uri }, Modifier.size(66.dp).clip(MaterialTheme.shapes.small),
-                    video = saved.coverUri.isBlank() && saved.mimeType.startsWith("video/"), description = "已保存作品缩略图")
+                val thumbnailSource = saved.coverUri.ifBlank { saved.uri }
+                MediaThumbnail(thumbnailSource, Modifier.size(66.dp).clip(MaterialTheme.shapes.small),
+                    video = thumbnailSource in saved.uris && saved.mimeTypeFor(thumbnailSource).startsWith("video/"),
+                    description = "已保存作品缩略图")
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Text(saved.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                     Text("${megabytes(saved.bytes)} MB · ${savedTime(saved.savedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    val typeLabel = if (saved.mimeType.startsWith("image/")) "图集 · ${saved.uris.size} 张" else if (saved.isAlbum) "图集合成视频" else "视频"
-                    Text(typeLabel,
+                    Text(savedContentLabel(saved),
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
             }
@@ -87,19 +88,21 @@ internal fun HistoryScreen(model: SaverViewModel) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { selecting = true; selected = selected + saved.uri }) { Text("管理") }
                 OutlinedButton(onClick = {
-                    if (saved.mimeType.startsWith("image/") && saved.uris.size > 1) album = saved else openSaved(context, saved)
-                }) { Text(if (saved.mimeType.startsWith("image/")) "查看图片" else "播放视频") }
+                    if (savedAlbumImages(saved).isNotEmpty()) album = saved else openSaved(context, saved)
+                }) { Text(if (savedAlbumImages(saved).any { it.kind != AlbumAssetKind.STATIC }) "查看图集"
+                    else if (savedAlbumImages(saved).isNotEmpty()) "查看图片" else "播放视频") }
             }
         } }
     }
     confirmation?.let { deleteFiles -> AlertDialog(onDismissRequest = { confirmation = null },
         title = { Text(if (deleteFiles) "删除 ${selected.size} 项的文件？" else "移除 ${selected.size} 条记录？") },
-        text = { Text(if (deleteFiles) "将删除所选作品对应的本地文件和记录。图集会删除这一条记录中的所有图片，此操作无法撤销。"
+        text = { Text(if (deleteFiles) "将删除所选作品对应的本地文件和记录。图集会一并删除原图、动图和动态片段，此操作无法撤销。"
             else "只从 App 中移除记录，本地文件会继续保留在原来的文件夹中。") },
         confirmButton = { TextButton(onClick = { model.manageHistory(selected, deleteFiles); selected = emptySet(); confirmation = null },
             colors = ButtonDefaults.textButtonColors(contentColor = if (deleteFiles) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)) {
             Text(if (deleteFiles) "确认删除文件" else "移除记录") } },
         dismissButton = { TextButton(onClick = { confirmation = null }) { Text("取消") } }) }
     album?.let { saved -> AlertDialog(onDismissRequest = { album = null }, title = { Text("已保存的图集") },
-        text = { AlbumPreview(saved.uris.map { ParsedImage(it) }) }, confirmButton = { TextButton(onClick = { album = null }) { Text("关闭") } }) }
+        text = { AlbumPreview(savedAlbumImages(saved), saved.title, saved.id) },
+        confirmButton = { TextButton(onClick = { album = null }) { Text("关闭") } }) }
 }

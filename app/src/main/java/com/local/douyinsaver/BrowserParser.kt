@@ -28,6 +28,7 @@ class BrowserParser(
     private val onResult: (ParsedVideo) -> Unit,
     private val onError: (String) -> Unit,
     private val onDiagnostic: (String) -> Unit = {},
+    initialUrl: String? = null,
 ) {
     private val handler = Handler(Looper.getMainLooper())
     private var disposed = false
@@ -36,9 +37,12 @@ class BrowserParser(
     private var lastSnapshot = ""
     private var consoleErrors = 0
     private var resourceErrors = 0
+    private var networkRetries = 0
+    private var networkRetryPending = false
     private var decodeErrors = 0
     private var emptyPageObservations = 0
     private var triedNotePage = false
+    private var noteNavigationPending = false
     private var missingMusicSince: Long? = null
     private var stableAlbum: ParsedVideo? = null
     private var lastReason = "页面尚未完成加载"
@@ -53,9 +57,9 @@ class BrowserParser(
 
     private val poll = object : Runnable {
         override fun run() {
-            if (disposed || completed) return
+            if (disposed || completed || networkRetryPending) return
             webView.evaluateJavascript(PublicPageScript.extract(videoId)) { value ->
-                if (disposed || completed) return@evaluateJavascript
+                if (disposed || completed || networkRetryPending) return@evaluateJavascript
                 try {
                     val encoded = JSONTokener(value).nextValue() as? String
                         ?: throw IllegalStateException("Page extraction returned no JSON string")
@@ -72,9 +76,16 @@ class BrowserParser(
                         if (imageList.length() > AlbumCandidatePolicy.MAX_IMAGES) return@firstNotNullOfOrNull null
                         val images = (0 until imageList.length()).map { index ->
                             val image = imageList.optJSONObject(index) ?: JSONObject()
+                            val motion = image.optJSONObject("motion")?.let { clip ->
+                                AlbumCandidatePolicy.MotionCandidate(strings(clip, "playUrls"),
+                                    strings(clip, "downloadUrls"), strings(clip, "mediaIds"),
+                                    clip.optInt("width"), clip.optInt("height"), clip.optDouble("durationSeconds", 0.0))
+                            }
                             AlbumCandidatePolicy.ImageCandidate(strings(image, "urls"),
                                 image.optInt("width"), image.optInt("height"),
-                                strings(image, "displayUrls"), strings(image, "downloadUrls"))
+                                strings(image, "displayUrls"), strings(image, "downloadUrls"),
+                                runCatching { AlbumAssetKind.valueOf(image.optString("kind")) }.getOrDefault(AlbumAssetKind.STATIC),
+                                image.optString("mimeType"), motion, image.optString("imageKey"))
                         }
                         AlbumCandidatePolicy.ready(videoId, json.optString("page"), item.optString("owner"),
                             item.optString("title"), images, strings(item, "bgmUrls"), item.optDouble("bgmDuration", 0.0))
@@ -129,6 +140,8 @@ class BrowserParser(
                     val host = runCatching { java.net.URI(url).host }.getOrNull().orEmpty()
                     val snapshot = "page_stats=$stats structured=${json.optBoolean("structured")} " +
                         "mediaHost=$host choices=${entries.size} mediaIds=${mediaIds.size} albums=${albums.size} images=${candidate?.images?.size ?: 0} " +
+                        "live=${candidate?.images?.count { it.kind == AlbumAssetKind.LIVE } ?: 0} " +
+                        "motions=${candidate?.images?.count { it.motion != null } ?: 0} " +
                         "bgm=${candidate?.bgmUrl?.isNotBlank() == true} candidate=${candidate != null} reason=$lastReason"
                     if (snapshot != lastSnapshot) { lastSnapshot = snapshot; trace(snapshot) }
                     if (candidate != null && candidate == previous) {
@@ -140,24 +153,34 @@ class BrowserParser(
                     }
                     previous = candidate
                     val canonical = json.optString("canonical")
+                    var noteSelected = false
                     if (candidate == null && !triedNotePage &&
                         ShareLinks.videoId(canonical) == videoId &&
                         runCatching { java.net.URI(canonical).path }.getOrNull()?.startsWith("/note/") == true) {
-                        triedNotePage = true
-                        emptyPageObservations = 0
-                        trace("album_page_selected id=$videoId")
-                        webView.loadUrl("https://www.iesdouyin.com/share/note/$videoId/")
+                        selectNotePage("canonical")
+                        noteSelected = true
                     }
                     val errors = stats.optJSONArray("knownErrors")
                     val known = (0 until (errors?.length() ?: 0)).map { errors!!.optString(it) }
-                    val recognizedEmptyPage = stats.optString("state") == "complete" &&
+                    val recognizedEmptyPage = !noteNavigationPending && stats.optString("state") == "complete" &&
                         ShareLinks.videoId(json.optString("page")) == videoId &&
                         stats.optInt("videos") == 0 && candidate == null &&
                         ("抱歉出错了" in known || "请尝试在抖音内观看" in known)
-                    emptyPageObservations = if (recognizedEmptyPage) emptyPageObservations + 1 else 0
+                    emptyPageObservations = if (recognizedEmptyPage && !noteSelected) emptyPageObservations + 1 else 0
                     if (emptyPageObservations >= 3) {
-                        fail("抖音分享页提示需在抖音内观看，没有提供视频信息")
-                        return@evaluateJavascript
+                        if (PageNetworkFailures.canRetryEmptyPage(videoId, json.optString("page"), networkRetries,
+                                stats.optBoolean("itemMatches"), known, stats.optBoolean("captchaVisible"))) {
+                            requestPageRetry(json.optString("page"), "EMPTY_SHARE_DATA")
+                            return@evaluateJavascript
+                        }
+                        if (AlbumPageFallback.afterEmptyVideoPage(videoId, json.optString("page"),
+                                stats.optBoolean("itemMatches"), emptyPageObservations, triedNotePage,
+                                stats.optBoolean("captchaVisible") || "验证码" in known)) {
+                            selectNotePage("empty_video")
+                        } else {
+                            fail("抖音分享页提示需在抖音内观看，没有提供视频信息")
+                            return@evaluateJavascript
+                        }
                     }
                 } catch (error: Exception) {
                     if (decodeErrors++ < 3) trace("extract_error type=${error.javaClass.simpleName} message=${error.message}")
@@ -166,6 +189,19 @@ class BrowserParser(
                 handler.postDelayed(this, 800)
             }
         }
+    }
+
+    private fun selectNotePage(reason: String) {
+        triedNotePage = true
+        noteNavigationPending = true
+        previous = null
+        stableAlbum = null
+        missingMusicSince = null
+        emptyPageObservations = 0
+        lastSnapshot = ""
+        lastReason = "正在读取同一作品的图集分享页"
+        trace("album_page_selected id=$videoId reason=$reason")
+        webView.loadUrl("https://www.iesdouyin.com/share/note/$videoId/")
     }
 
     private fun succeed(result: ParsedVideo) {
@@ -217,13 +253,16 @@ class BrowserParser(
             override fun onPageFinished(view: WebView, url: String) {
                 trace("page_finished host=${android.net.Uri.parse(url).host} id=${ShareLinks.videoId(url)}")
             }
+            override fun onPageCommitVisible(view: WebView, url: String) {
+                // While a new note page is loading, evaluateJavascript can still read
+                // the prior video error DOM. Only the new main-document commit ends that wait.
+                if (noteNavigationPending && AlbumPageFallback.isNotePageUrl(videoId, url)) noteNavigationPending = false
+            }
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
                 request.isForMainFrame && (request.url.scheme != "https" || !ShareLinks.isShareHost(request.url.host))
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame || resourceErrors++ < 8)
-                    trace("network_error main=${request.isForMainFrame} code=${error.errorCode} host=${request.url.host}")
-                if (request.isForMainFrame) fail("抖音页面连接失败（错误码 ${error.errorCode}）")
+                receivedNetworkError(request.isForMainFrame, error.errorCode, request.url.toString())
             }
             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
                 if (request.isForMainFrame || resourceErrors++ < 8)
@@ -236,9 +275,41 @@ class BrowserParser(
                 return true
             }
         }
-        webView.loadUrl("https://www.iesdouyin.com/share/video/$videoId/")
+        val startUrl = AlbumPageFallback.initialPageUrl(videoId, initialUrl)
+        triedNotePage = AlbumPageFallback.isNotePageUrl(videoId, startUrl)
+        webView.loadUrl(startUrl)
         handler.postDelayed(timeout, 60_000)
         handler.postDelayed(poll, 800)
+    }
+
+    /** WebView error entry; kept separate from the provider's non-constructible error class. */
+    internal fun receivedNetworkError(mainFrame: Boolean, code: Int, failedUrl: String) {
+        if (disposed || completed) return
+        if (mainFrame || resourceErrors++ < 8)
+            trace("network_error main=$mainFrame code=$code host=${android.net.Uri.parse(failedUrl).host}")
+        if (!mainFrame) return
+        if (!networkRetryPending && PageNetworkFailures.canRetry(code, networkRetries, videoId, failedUrl)) {
+            requestPageRetry(failedUrl, PageNetworkFailures.browserKind(code).toString())
+        } else if (!networkRetryPending) fail(PageNetworkFailures.browserMessage(code))
+    }
+
+    /** Transport and empty-share retries share one budget and the existing total deadline. */
+    private fun requestPageRetry(url: String, reason: String) {
+        networkRetries++
+        networkRetryPending = true
+        previous = null
+        stableAlbum = null
+        missingMusicSince = null
+        emptyPageObservations = 0
+        handler.removeCallbacks(poll)
+        trace("page_network_retry attempt=$networkRetries kind=$reason")
+        handler.postDelayed({
+            if (!disposed && !completed) {
+                networkRetryPending = false
+                webView.loadUrl(url)
+                handler.postDelayed(poll, 800)
+            }
+        }, 900)
     }
 
     private fun fail(message: String) {

@@ -12,6 +12,16 @@ class SaverViewModel(application: Application) : AndroidViewModel(application) {
     var selectedPage: AppPage get() = engine.selectedPage; set(value) { engine.selectedPage = value }
     var albumMode: AlbumMode get() = engine.albumMode; set(value) { engine.albumMode = value }
     var imageSeconds: Int get() = engine.imageSeconds; set(value) { engine.imageSeconds = value.coerceIn(2, 10) }
+    var staticImageSeconds: Double get() = engine.staticImageSeconds; set(value) { engine.updateStaticImageSeconds(value) }
+    var itemDurationSeconds: Double? get() = engine.itemDurationSeconds; set(value) { engine.setSelectedItemDuration(value) }
+    fun itemDurationForTask(key: String) = engine.itemDurationForTask(key)
+    fun setItemDurationForTask(key: String, value: Double?) = engine.setItemDurationForTask(key, value)
+    val durationAdjustments get() = engine.durationAdjustments
+    fun confirmDurationAdjustment() = engine.confirmDurationAdjustment()
+    fun returnToDurationEditing() = engine.returnToDurationEditing()
+    var gifStartSeconds: Float get() = engine.gifStartSeconds; set(value) { engine.gifStartSeconds = value }
+    var gifDurationSeconds: Float get() = engine.gifDurationSeconds; set(value) { engine.gifDurationSeconds = value }
+    var gifExportQuality: GifExportQuality get() = engine.gifExportQuality; set(value) { engine.gifExportQuality = value }
     var fileName: String get() = engine.fileName; set(value) { engine.fileName = value.take(120) }
     var namingRule: NamingRule get() = engine.namingRule; set(value) { engine.updateNamingRule(value) }
     val watermarkMode get() = engine.watermarkMode
@@ -36,12 +46,25 @@ class SaverViewModel(application: Application) : AndroidViewModel(application) {
     val duplicate get() = engine.duplicate
     val browsingId get() = engine.browsingId
     val generation get() = engine.generation
+    val albumMotionVerificationVisible get() = engine.albumMotionVerificationVisible
+    fun albumMotionState(taskKey: String? = selectedTaskKey) = engine.albumMotionState(taskKey)
+    fun checkAlbumMotion(taskKey: String? = selectedTaskKey) = engine.checkAlbumMotion(taskKey)
+    fun saveAlbumMotion(taskKey: String? = selectedTaskKey, force: Boolean = false, mode: AlbumMode = AlbumMode.IMAGES,
+        selectedImageIndices: List<Int> = emptyList()) = engine.saveAlbumMotion(taskKey, force, mode, selectedImageIndices)
+    fun saveFailedShareAlbumMotion(mode: AlbumMode = AlbumMode.IMAGES) = engine.saveFailedShareAlbumMotion(mode)
+    fun checkFailedShareAlbumMotion() = engine.saveFailedShareAlbumMotion(saveOnReady = false)
+    fun cancelAlbumMotion() = engine.cancelAlbumMotion()
+    fun openAlbumMotionVerification() = engine.openAlbumMotionVerification()
+    fun continueAlbumMotionVerification() = engine.continueAlbumMotionVerification()
+    fun attachAlbumMotionVerificationHost(host: FrameLayout) = engine.attachAlbumMotionVerificationHost(host)
+    fun detachAlbumMotionVerificationHost(host: FrameLayout) = engine.detachAlbumMotionVerificationHost(host)
     fun attachParserHost(host: FrameLayout) = engine.attachParserHost(host)
     fun detachParserHost(host: FrameLayout) = engine.detachParserHost(host)
     fun acceptShare(text: String) = engine.acceptShare(text)
     fun clearInput() = engine.clearInput()
     fun resolve() = engine.resolve()
-    fun download(force: Boolean = false) = engine.download(force)
+    fun download(force: Boolean = false, selectedImageIndices: List<Int> = emptyList()) = engine.download(force, selectedImageIndices)
+    fun downloadGif(force: Boolean = false) = engine.downloadGif(force)
     fun cancel() = engine.cancel()
     fun selectDownloadFolder(uri: Uri) = engine.selectDownloadFolder(uri)
     fun resetDownloadFolder() = engine.resetDownloadFolder()
@@ -55,8 +78,9 @@ class SaverViewModel(application: Application) : AndroidViewModel(application) {
     fun moveTask(key: String, delta: Int) = engine.moveTask(key, delta)
     fun moveTaskTo(key: String, targetIndex: Int) = engine.moveTaskTo(key, targetIndex)
     fun viewTaskResult(key: String) = engine.viewTaskResult(key)
-    fun downloadTask(key: String, force: Boolean = false, mode: AlbumMode = AlbumMode.IMAGES) = engine.downloadTask(key, force, mode)
-    fun downloadParsedQueue(keys: Set<String> = emptySet()) = engine.downloadParsedQueue(keys)
+    fun downloadTask(key: String, force: Boolean = false, mode: AlbumMode = AlbumMode.IMAGES,
+        selectedImageIndices: List<Int> = emptyList()) = engine.downloadTask(key, force, mode, selectedImageIndices)
+    fun downloadParsedQueue(keys: Set<String> = emptySet(), mode: AlbumMode = AlbumMode.IMAGES) = engine.downloadParsedQueue(keys, mode)
     fun manageHistory(uris: Set<String>, deleteFiles: Boolean) = engine.manageHistory(uris, deleteFiles)
     fun refreshHistory() = engine.refreshHistory()
 }

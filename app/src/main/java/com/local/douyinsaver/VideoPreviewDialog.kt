@@ -69,7 +69,13 @@ fun VideoPreviewDialog(source: String, title: String, width: Int = 0, height: In
     val forwardStep = PreviewPlaybackPolicy.seekSeconds(forwardSeconds)
     val owner = LocalActivity.current as? LifecycleOwner
     val remote = remember(source) { source.toUri().scheme == "https" }
-    val allowed = remember(source) { source.toUri().scheme == "content" || MediaUrls.isAllowed(source) }
+    val allowed = remember(source, context) {
+        val uri = source.toUri()
+        uri.scheme == "content" || MediaUrls.isAllowed(source) || (uri.scheme == "file" && runCatching {
+            val file = java.io.File(requireNotNull(uri.path)).canonicalFile
+            file.isFile && file.toPath().startsWith(context.cacheDir.canonicalFile.toPath())
+        }.getOrDefault(false))
+    }
     var position by rememberSaveable(source) { mutableLongStateOf(0L) }
     var playRequested by rememberSaveable(source) { mutableStateOf(true) }
     var muted by rememberSaveable(source) { mutableStateOf(false) }

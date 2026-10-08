@@ -11,8 +11,8 @@ android {
         minSdk = 29
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 20
-        versionName = "1.1.0"
+        versionCode = 42
+        versionName = "1.2.0"
     }
     buildFeatures { compose = true; buildConfig = true }
     buildTypes {
@@ -22,6 +22,7 @@ android {
         }
     }
     sourceSets.getByName("phonecheck").java.srcDir("src/androidTest/java")
+    sourceSets.getByName("phonecheck").assets.srcDir("src/androidTest/assets")
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

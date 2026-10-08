@@ -6,6 +6,8 @@ internal object AlbumMediaPolicy {
     const val MAX_IMAGE_BYTES = 32L * 1024 * 1024
     const val MAX_ALBUM_BYTES = 512L * 1024 * 1024
     const val MAX_AUDIO_BYTES = 64L * 1024 * 1024
+    const val MAX_MOTION_BYTES = 128L * 1024 * 1024
+    const val MAX_MOTION_DURATION_MS = 60_000L
     const val MAX_VIDEO_BYTES = 2L * 1024 * 1024 * 1024
     const val MAX_IMAGE_EDGE = 32_768
     const val MAX_IMAGE_PIXELS = 80_000_000L
@@ -45,6 +47,11 @@ internal object AlbumMediaPolicy {
     }
 
     fun fitsBytes(size: Long, maximum: Long): Boolean = size in 1..maximum
+
+    /** A still-frame export must never silently discard a downloaded animation. */
+    fun requireStillComposition(hasDynamicMedia: Boolean) {
+        require(!hasDynamicMedia) { "这个图集包含动态图片，请选择保存图片以保留动态内容；暂不支持合成动态图片与 BGM" }
+    }
 
     // Negative presentation timestamps are valid for AAC priming; only -1 track index means EOS.
     fun samplePresent(expectedTrack: Int, actualTrack: Int, bytes: Long): Boolean =

@@ -28,6 +28,7 @@ import androidx.activity.compose.setContent
 import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -196,6 +197,15 @@ class PreviewInteractionTest {
                     // Resume before moving to CREATED so lifecycle pause is still tested.
                     clickDescription("播放视频")
                     ensurePlaying(active)
+                    // Test a frame inside the first still segment, not its 2 s
+                    // cut. Closest-frame reference decoding can pick the red
+                    // frame before that cut while the player's seek renders the
+                    // first blue frame after it; both are valid at that boundary.
+                    instrumentation.runOnMainSync { active.seekTo(500L) }
+                    waitFor {
+                        val state = observe(active)
+                        state.playing && state.playWhenReady && state.position in 500L..1_100L
+                    }
                     scenario.moveToState(Lifecycle.State.CREATED)
                     waitFor { !observe(active).playing && !observe(active).playWhenReady }
                     val paused = observe(active).position
@@ -310,6 +320,7 @@ class PreviewInteractionTest {
             LayoutCase(300, 1f, false, "preview_shortcuts_300_validation.png"),
             // Redmi's 1220 px / ~3.3 density, after screen and card padding, is about 294 dp.
             LayoutCase(294, 1f, false, "preview_shortcuts_phone_width_validation.png"),
+            LayoutCase(284, 1f, true, "preview_shortcuts_narrow_emulator_validation.png"),
             LayoutCase(300, 1.8f, true, "preview_shortcuts_large_text_validation.png"),
         )
         layouts.forEach { layout ->
@@ -326,7 +337,11 @@ class PreviewInteractionTest {
                                 CompositionLocalProvider(LocalDensity provides Density(nativeDensity.density, layout.fontScale)) {
                                     MaterialTheme(shapes = MaterialTheme.shapes.copy(small = RoundedCornerShape(12.dp))) {
                                         // Use the actual settings component/card, with an exact inner viewport.
-                                        Column(Modifier.padding(20.dp).width((layout.widthDp + 36).dp)) {
+                                        // Keep the requested inner width reachable on a 360 dp
+                                        // emulator: 300 + 36 card padding + 2 * 8 outer = 352.
+                                        // The previous 20 dp outer inset constrained it to 284.
+                                        Column(Modifier.safeDrawingPadding().padding(horizontal = 8.dp, vertical = 20.dp)
+                                            .width((layout.widthDp + 36).dp)) {
                                             SectionCard { PreviewSettingsControls(preferences) }
                                         }
                                     }

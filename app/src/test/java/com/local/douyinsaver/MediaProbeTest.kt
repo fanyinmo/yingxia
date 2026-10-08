@@ -21,6 +21,27 @@ class MediaProbeTest {
 
     private fun source(url: String, mode: WatermarkMode = WatermarkMode.CLEAN) = MediaSource(url, mode)
 
+    @Test fun aForbiddenAwemeColdNodeCanFallBackToAnObservedOfficialMirrorOfTheSameRendition() = runBlocking {
+        val mirror = entry.replace("aweme.snssdk.com", "www.iesdouyin.com") + "&ratio=720p&token=a%2Bb%3D"
+        val cold = "https://v5-se-sjy-daily-cold.douyinvod.com/rejected.mp4?signature=private_cold"
+        val requested = mutableListOf<String>()
+        val probe = MediaProbe(connections = { uri ->
+            requested += uri.toString()
+            when (uri.toString()) {
+                entry -> response(uri, 302, cold)
+                cold -> response(uri, 403)
+                mirror -> response(uri, 302, fresh)
+                else -> response(uri)
+            }
+        }, cookies = { null })
+        val verified = probe.verify(video(source(entry), source(mirror), source(marked, WatermarkMode.WATERMARKED)))
+        assertEquals(listOf(entry, cold, mirror, fresh), requested)
+        assertEquals(fresh, verified.mediaUrl)
+        assertTrue(verified.mediaSources.contains(source(mirror)))
+        assertFalse(verified.mediaSources.contains(source(entry)))
+        assertFalse(requested.contains(marked))
+    }
+
     @Test fun selectedEntryBecomesTheVerifiedFinalUrlUsedByPreviewAndDownloadSelection() = runBlocking {
         val requested = mutableListOf<String>()
         val probe = MediaProbe(connections = { uri ->
@@ -411,6 +432,50 @@ class MediaProbeTest {
             assertTrue(diagnostics.any { it.contains("scheme=http host=v6.douyinvod.com") })
             assertTrue(diagnostics.any { it.contains("upgraded=true") })
             assertFalse(diagnostics.joinToString().contains("private_"))
+        }
+    }
+
+    @Test fun numericColdRelayOnItsConfirmedTlsPortVerifiesMp4AndPreservesTheRefreshEntry() = runBlocking {
+        val cold = "https://n98-v-ncdncold.douyinvod.com/first.mp4?signature=private_cold"
+        val target = "https://24898382.ydycdn.com:58001/a%2Fb/video.mp4?signature=private_a%2Bb%3D&x=&x=1"
+        val requested = mutableListOf<String>()
+        val diagnostics = mutableListOf<String>()
+        val probe = MediaProbe(connections = { uri ->
+            requested += uri.toString()
+            when (uri.toString()) {
+                entry -> response(uri, 302, cold)
+                cold -> response(uri, 302, target)
+                target -> response(uri, 206, range = "bytes 0-31/128")
+                else -> error("Unexpected numeric CDN request: ${uri.host}")
+            }
+        }, cookies = { null })
+        val verified = probe.verify(video(source(entry), source(marked, WatermarkMode.WATERMARKED)), diagnostics::add)
+        assertEquals(listOf(entry, cold, target), requested)
+        assertEquals(target, WatermarkSources.select(verified, WatermarkMode.CLEAN).mediaUrl)
+        assertTrue(verified.mediaSources.contains(source(entry)))
+        assertTrue(verified.mediaSources.contains(source(target)))
+        assertFalse(requested.contains(marked))
+        assertTrue(diagnostics.any { it.contains("host=24898382.ydycdn.com port=58001 allowed=true") })
+        assertFalse(diagnostics.joinToString().contains("private_"))
+    }
+
+    @Test fun numericRelayDoesNotMakeWrongPortsMarkedUrlsOrNonMp4ContentValid() {
+        val cold = "https://n98-v-ncdncold.douyinvod.com/first.mp4"
+        for (target in listOf("https://24898382.ydycdn.com:58002/video.mp4",
+            "https://24898382.ydycdn.com:58001/video.mp4?watermark=1",
+            "https://node.ydycdn.com:58001/video.mp4")) {
+            val requested = mutableListOf<String>()
+            val probe = MediaProbe(connections = { uri ->
+                requested += uri.toString()
+                response(uri, 302, target)
+            }, cookies = { null })
+            assertThrows(IllegalStateException::class.java) { runBlocking { probe.verify(video(source(cold))) } }
+            assertEquals(listOf(cold), requested)
+        }
+        val target = "https://24898382.ydycdn.com:58001/video.mp4"
+        for ((type, bytes) in listOf("text/plain" to mp4Header(), "video/mp4" to ByteArray(32))) {
+            val probe = MediaProbe(connections = { uri -> response(uri, type = type, bytes = bytes) }, cookies = { null })
+            assertThrows(IllegalStateException::class.java) { runBlocking { probe.verify(video(source(target))) } }
         }
     }
 

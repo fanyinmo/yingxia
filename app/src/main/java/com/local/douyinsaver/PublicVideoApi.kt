@@ -18,6 +18,8 @@ class PublicVideoApi {
     @Volatile private var activeConnection: HttpURLConnection? = null
     private val running = AtomicBoolean(false)
     private val cancelled = AtomicBoolean(false)
+    @Volatile internal var lastNetworkFailure: PageNetworkFailure? = null
+        private set
 
     fun cancel() {
         cancelled.set(true)
@@ -32,6 +34,7 @@ class PublicVideoApi {
         currentCoroutineContext().ensureActive()
         check(running.compareAndSet(false, true)) { "视频信息请求正在进行" }
         cancelled.set(false)
+        lastNetworkFailure = null
         fun report(message: String) {
             // Diagnostics never contain cookies, response bodies, or signed media URLs.
             runCatching { onDiagnostic(message) }
@@ -137,8 +140,16 @@ class PublicVideoApi {
                         val originals = listOf(image) + matching
                         val displayUrls = originals.flatMap(::displayImageUrls).distinct().take(64)
                         val downloadUrls = originals.flatMap(::downloadImageUrls).distinct().take(64)
+                        val motion = imageMotion(originals)
+                        val gif = displayUrls.any { url ->
+                            runCatching { java.net.URI(url).path.endsWith(".gif", true) }.getOrDefault(false)
+                        }
                         AlbumCandidatePolicy.ImageCandidate((downloadUrls + displayUrls).distinct().take(64),
-                            image.optInt("width"), image.optInt("height"), displayUrls, downloadUrls)
+                            image.optInt("width"), image.optInt("height"), displayUrls, downloadUrls,
+                            if (originals.any { OfficialPhotoClipPolicy.declaresLive(it.opt("clip_type")) }) AlbumAssetKind.LIVE
+                            else if (motion != null && originals.any { (it.opt("clip_type") as? Number)?.toInt() == 1 }) AlbumAssetKind.ANIMATED
+                            else if (motion != null) AlbumAssetKind.DYNAMIC else AlbumAssetKind.STATIC,
+                            if (gif) "image/gif" else "", motion, image.optString("uri"))
                     }
                     val music = detail.optJSONObject("music")
                     val address = detail.optJSONObject("video")?.optJSONObject("play_addr")
@@ -148,7 +159,9 @@ class PublicVideoApi {
                     val album = AlbumCandidatePolicy.ready(id, "https://www.douyin.com/note/$id", id,
                         detail.optString("desc"), images, (ownAudio + audioUrls(music?.opt("play_url"))).distinct(),
                         if (ownAudio.isNotEmpty() && videoDuration.isFinite() && videoDuration > 0) videoDuration / 1000.0 else musicDuration)
-                    report("detail_api result=${if (album == null) "incomplete_album" else "album_candidate"} images=${images.size} bgm=${album?.bgmUrl?.isNotBlank() == true}")
+                    report("detail_api result=${if (album == null) "incomplete_album" else "album_candidate"} images=${images.size} " +
+                        "live=${album?.images?.count { it.kind == AlbumAssetKind.LIVE } ?: 0} " +
+                        "motions=${album?.images?.count { it.motion != null } ?: 0} bgm=${album?.bgmUrl?.isNotBlank() == true}")
                     ensureNotCancelled()
                     return@withContext album
                 }
@@ -192,6 +205,7 @@ class PublicVideoApi {
             throw error
         } catch (error: Exception) {
             ensureNotCancelled()
+            lastNetworkFailure = PageNetworkFailures.exceptionKind(error)
             report("detail_api result=request_failed kind=${error.javaClass.simpleName}")
             null
         } finally {
@@ -204,6 +218,23 @@ class PublicVideoApi {
 
     private fun downloadImageUrls(image: JSONObject): List<String> = listOf("download_url", "download_addr",
         "download_url_list").flatMap { urls(image.opt(it)) }
+
+    /** Clip metadata is accepted only from this photo or its same-URI bitrate variants. */
+    private fun imageMotion(images: List<JSONObject>): AlbumCandidatePolicy.MotionCandidate? {
+        val clips = images.filter { OfficialPhotoClipPolicy.allowsVideo(it.has("clip_type"), it.opt("clip_type")) }
+            .mapNotNull { it.optJSONObject("video") }
+        if (clips.isEmpty()) return null
+        val clip = clips.firstOrNull { videoPlayUrls(it).isNotEmpty() || videoMediaIds(it).isNotEmpty() } ?: clips.first()
+        val address = clip.optJSONObject("play_addr") ?: clip.optJSONObject("download_addr")
+        return AlbumCandidatePolicy.MotionCandidate(
+            clips.flatMap(::videoPlayUrls).distinct().take(64),
+            clips.flatMap(::videoDownloadUrls).distinct().take(64),
+            clips.flatMap(::videoMediaIds).distinct().take(16),
+            clip.optInt("width").takeIf { it > 0 } ?: address?.optInt("width") ?: 0,
+            clip.optInt("height").takeIf { it > 0 } ?: address?.optInt("height") ?: 0,
+            clip.optDouble("duration", 0.0) / 1000.0,
+        )
+    }
 
     private fun imageAlternates(work: JSONObject): Map<String, List<JSONObject>> {
         val gears = work.optJSONArray("img_bitrate") ?: return emptyMap()

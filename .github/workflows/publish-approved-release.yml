@@ -1,0 +1,21 @@
+name: Publish approved signed package
+on:
+  push:
+    branches: [main]
+    paths: [docs/releases/publish.json]
+permissions:
+  contents: write
+concurrency:
+  group: yingxia-approved-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'fanyinmo/yingxia'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify and publish the already signed APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_approved_release.py
