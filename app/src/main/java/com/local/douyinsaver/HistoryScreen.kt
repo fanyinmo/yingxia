@@ -86,6 +86,7 @@ internal fun HistoryScreen(model: SaverViewModel) {
             if (saved.fileName.isNotBlank()) Text(saved.fileName, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(saved.locationLabel, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { model.reparseSaved(saved) }, enabled = !model.busy && !model.queueRunning && !model.batchSaving && saved.id.matches(Regex("[0-9]{15,22}"))) { Text("重新解析") }
                 TextButton(onClick = { selecting = true; selected = selected + saved.uri }) { Text("管理") }
                 OutlinedButton(onClick = {
                     if (savedAlbumImages(saved).isNotEmpty()) album = saved else openSaved(context, saved)

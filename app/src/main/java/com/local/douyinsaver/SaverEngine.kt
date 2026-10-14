@@ -26,6 +26,8 @@ import android.provider.DocumentsContract
 class SaverEngine private constructor(private val application: Application, private val namespace: String = "") {
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main.immediate)
     private val records = DownloadRecords(application, namespace)
+    private val parseRecords = ParseRecords(application, namespace)
+    var parseHistory by mutableStateOf(parseRecords.history()); private set
     private val optionsPreferences = application.getSharedPreferences("${namespace}download_options", 0)
     // Older preferences and records remain intact, but cannot change the download rendition.
     val defaultWatermarkMode: WatermarkMode get() = WatermarkMode.CLEAN
@@ -55,7 +57,7 @@ class SaverEngine private constructor(private val application: Application, priv
     fun returnToDurationEditing() { durationAnswer?.complete(false); durationAdjustments = emptyList() }
     var gifStartSeconds by mutableStateOf(0f)
     var gifDurationSeconds by mutableStateOf(6f)
-    var gifExportQuality by mutableStateOf(GifExportQuality.SHARE)
+    var gifExportQuality by mutableStateOf(GifExportQuality.HIGH_QUALITY)
     var fileName by mutableStateOf("")
     var namingRule by mutableStateOf(runCatching { NamingRule.valueOf(optionsPreferences.getString("naming", "DATE_TITLE")!!) }
         .getOrDefault(NamingRule.DATE_TITLE)); private set
@@ -279,6 +281,7 @@ class SaverEngine private constructor(private val application: Application, priv
                     return
                 }
                 val candidate = AlbumKindPreservation.preserveKnownKinds(request.base, resolved)
+                rememberParseResult(candidate)
                 releaseAlbumMotionReader()
                 motionRequest = null
                 if (!request.saveOnReady) {
@@ -557,6 +560,29 @@ class SaverEngine private constructor(private val application: Application, priv
         }
     }
 
+    fun reparseRecord(record: ParseRecord) = reparseWork(record.id, record.isAlbum)
+    fun reparseSaved(saved: SavedVideo) = reparseWork(saved.id, saved.isAlbum)
+    private fun reparseWork(id: String, isAlbum: Boolean) {
+        if (busy || queueRunning || batchSaving) return
+        val source = runCatching { ParseRecord.workUrl(id, isAlbum) }.getOrElse {
+            message = "这条旧记录没有有效作品编号，无法重新解析"
+            return
+        }
+        selectedPage = AppPage.HOME
+        updateInput(source)
+        resolve()
+    }
+    fun removeParseRecord(id: String) {
+        runCatching { parseRecords.remove(id); parseHistory = parseRecords.history() }
+            .onFailure { message = FailureMessages.describe(it) }
+    }
+    private fun rememberParseResult(content: ParsedVideo) {
+        runCatching {
+            parseRecords.save(ParseRecord(content.id, content.title, content.isAlbum))
+            parseHistory = parseRecords.history()
+        }.onFailure { trace("parse_record_write_failed type=${it.javaClass.simpleName}") }
+    }
+
     private fun prepareResolve(source: String, taskKey: String?): Int {
         if (activeTaskKey != taskKey) retireReadyTask("已切换作品，请重新解析此任务")
         stopCurrentParsing()
@@ -674,9 +700,9 @@ class SaverEngine private constructor(private val application: Application, priv
         // original LIVE hint; only this temporary availability check ignores that
         // missing clip, and all other image/motion sources must remain valid.
         val canReadMissingLiveMotion = verified.isAlbum &&
-            verified.images.any { it.kind == AlbumAssetKind.LIVE && it.motion == null } &&
+            verified.images.any { it.kind in listOf(AlbumAssetKind.LIVE, AlbumAssetKind.DYNAMIC) && it.motion == null } &&
             WatermarkSources.available(verified.copy(images = verified.images.map { image ->
-                if (image.kind == AlbumAssetKind.LIVE && image.motion == null)
+                if (image.kind in listOf(AlbumAssetKind.LIVE, AlbumAssetKind.DYNAMIC) && image.motion == null)
                     image.copy(kind = AlbumAssetKind.STATIC) else image
             }), WatermarkMode.CLEAN)
         if (!WatermarkSources.available(verified, WatermarkMode.CLEAN) && !canReadMissingLiveMotion) {
@@ -687,6 +713,7 @@ class SaverEngine private constructor(private val application: Application, priv
             return
         }
         video = verified
+        rememberParseResult(verified)
         if (verified.hasDynamicAlbumAssets) albumMode = AlbumMode.IMAGES
         duplicateCandidates = duplicates
         activeTaskKey?.let { key ->
@@ -712,12 +739,20 @@ class SaverEngine private constructor(private val application: Application, priv
                 advanceQueueLater()
                 return
             }
-            // Mobile pages often expose only covers. Resolve the same work once before
-            // presenting static-only actions; a bounded failure never discards the covers.
-            val request = MotionRequest(++motionNonce, activeTaskKey, verified, generation, queueEpoch, false,
-                AlbumMode.IMAGES, saveOnReady = false, automatic = true)
-            startAlbumMotionRead(request)
-            return
+            val missingMotion = verified.images.any {
+                it.kind in listOf(AlbumAssetKind.LIVE, AlbumAssetKind.DYNAMIC) && it.motion == null
+            }
+            if (missingMotion) {
+                val request = MotionRequest(++motionNonce, activeTaskKey, verified, generation, queueEpoch, false,
+                    AlbumMode.IMAGES, saveOnReady = false, automatic = true)
+                startAlbumMotionRead(request)
+                return
+            }
+            if (verified.images.any { it.motion != null || it.kind == AlbumAssetKind.ANIMATED }) {
+                val key = activeTaskKey?.let { "queue:$it" } ?: "single:${verified.id}"
+                motionStates = motionStates + (key to AlbumMotionReadState(AlbumMotionPhase.AVAILABLE,
+                    "已取得动态资源，无需重复检查"))
+            }
         }
         if (!queueRunning && activeTaskKey != null) restoreSingleSelection()
         advanceQueueLater()

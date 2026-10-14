@@ -68,7 +68,7 @@ class DownloadStorage(context: Context) {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, defaultLocation)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }) ?: error("无法创建${noun}文件，请检查可用空间")
-            return PendingDownload(uri, name, defaultLocation, true)
+            return PendingDownload(uri, name, defaultLocation, true, mimeType)
         }
         validateAccess(folder)
         val parent = treeDocument(Uri.parse(folder.treeUri))
@@ -76,7 +76,7 @@ class DownloadStorage(context: Context) {
         val temporaryName = ".${name.substringBeforeLast('.', name)}.pending${if (extension.isBlank()) "" else ".$extension"}"
         val uri = DocumentsContract.createDocument(resolver, parent, mimeType, temporaryName)
             ?: error("无法在所选文件夹创建${noun}，请检查权限和可用空间")
-        val pending = PendingDownload(uri, name, folder.label, false)
+        val pending = PendingDownload(uri, name, folder.label, false, mimeType)
         try {
             // A new temporary document must support final renaming and cancellation cleanup.
             val required = Document.FLAG_SUPPORTS_WRITE or Document.FLAG_SUPPORTS_RENAME or Document.FLAG_SUPPORTS_DELETE
@@ -97,13 +97,38 @@ class DownloadStorage(context: Context) {
         private val finalName: String,
         val locationLabel: String,
         private val mediaStore: Boolean,
+        private val mimeType: String,
     ) {
         private var published = false
 
         /** Called only after the stream length and actual media contents have been validated. */
         fun publish(): Uri {
             if (mediaStore) {
-                check(resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null) == 1) {
+                val values = ContentValues()
+                if (mimeType == "image/gif") {
+                    // Some gallery pickers query dimensions before the background scanner
+                    // has read the GIF. Publish its real canvas together with visibility.
+                    val header = ByteArray(13)
+                    resolver.openInputStream(uri)?.use { input ->
+                        var count = 0
+                        while (count < header.size) {
+                            val read = input.read(header, count, header.size - count)
+                            require(read > 0) { "GIF 文件头不完整，未保存到相册" }
+                            count += read
+                        }
+                    } ?: error("无法读取已保存的 GIF")
+                    val signature = header.copyOfRange(0, 6).toString(Charsets.US_ASCII)
+                    require(signature == "GIF89a" || signature == "GIF87a") { "GIF 格式无效，未保存到相册" }
+                    fun dimension(offset: Int) = (header[offset].toInt() and 255) or ((header[offset + 1].toInt() and 255) shl 8)
+                    val width = dimension(6)
+                    val height = dimension(8)
+                    require(width > 0 && height > 0) { "GIF 尺寸无效，未保存到相册" }
+                    values.put(MediaStore.MediaColumns.WIDTH, width)
+                    values.put(MediaStore.MediaColumns.HEIGHT, height)
+                    values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                }
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                check(resolver.update(uri, values, null, null) == 1) {
                     "文件未能发布到相册"
                 }
             } else {

@@ -35,6 +35,10 @@ class SaverViewModel(application: Application) : AndroidViewModel(application) {
     val downloaded get() = engine.downloaded
     val total get() = engine.total
     val history get() = engine.history
+    val parseHistory get() = engine.parseHistory
+    fun reparseRecord(record: ParseRecord) = engine.reparseRecord(record)
+    fun reparseSaved(saved: SavedVideo) = engine.reparseSaved(saved)
+    fun removeParseRecord(id: String) = engine.removeParseRecord(id)
     val diagnostics get() = engine.diagnostics
     val downloadFolder get() = engine.downloadFolder
     val downloadLocationLabel get() = engine.downloadLocationLabel

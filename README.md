@@ -3,7 +3,7 @@
   <h1>影匣</h1>
   <p><strong>把喜欢的视频下载到手机。</strong></p>
   <p>简洁的 Android 抖音视频与图集保存工具</p>
-  <p><b>1.2.0 第三版</b> · Android 10 及以上 · Jetpack Compose</p>
+  <p><b>1.2.1</b> · Android 10 及以上 · Jetpack Compose</p>
   <p>
     <a href="https://github.com/fanyinmo/yingxia/releases">下载安装</a> ·
     <a href="docs/INSTALL.md">使用说明</a> ·
@@ -13,9 +13,9 @@
   </p>
 </div>
 
-正式第三版 **1.2.0（versionCode 42）**，采用已确认的 rc21 功能，最低 Android 10。沿用原签名，覆盖更新保留已有设置与记录。相对第二版的变化见 [第三版说明](docs/releases/1.2.0.md)，当前交付见 [最新版](docs/CURRENT_VERSION.md)。
+当前正式版 **1.2.1（versionCode 47）**，最低 Android 10。沿用原签名，覆盖更新保留设置、记录与文件。相对 1.2.0 的变化见 [更新说明](docs/releases/1.2.1.md)，当前交付见 [最新版](docs/CURRENT_VERSION.md)。
 
-新增动态图集识别与单项保存、视频／图集 GIF 制作、真实动态素材与 BGM 合成。原生 GIF／WebP 保留原格式，视频型动图保存为无声 MP4。GIF 可选分享或清晰参数，时长输入精确到 0.1 秒；静图序列支持每张 0.1 秒。自动读取失败时保留已有结果，可手动重试。
+GIF 默认清晰优先，不再按体积自动降低画质；原 GIF 未修改时长时直接保存原字节，仍只保存一份结果。普通静图解析后立即可操作，有明确缺片段线索才自动检查动态资源。新增独立解析记录，解析记录与下载记录都能回到首页重新解析，不自动下载。抖音请通过自定义表情入口添加 GIF。
 
 本版移除实况照片保存与动图转实况，动态卡片保留原素材／GIF 两类操作。旧记录不删除；普通视频、批量、天蓝主题、调色盘、图片背景、路径及历史功能继续保留。实际验证范围与限制见 [验证记录](docs/VALIDATION.md)。
 
@@ -52,7 +52,7 @@
 
 ## 开始使用
 
-1. 在 [Releases](https://github.com/fanyinmo/yingxia/releases/tag/v1.2.0) 下载正式版 `yingxia-1.2.0.apk`，可覆盖首版、第二版及 rc21，保留已有设置与记录。
+1. 在 [Releases](https://github.com/fanyinmo/yingxia/releases/tag/v1.2.1) 下载正式版 `yingxia-1.2.1.apk`，可覆盖旧正式版及候选，保留已有设置与记录。
 2. 在抖音复制作品分享链接，回到首页点击“粘贴并解析”。
 3. 解析完成后直接下载视频、保存图片，或在有可用 BGM 时合成图集视频。
 
@@ -73,7 +73,7 @@
 node --test parser-lab/browser-script.test.cjs parser-lab/public-page-script.test.cjs parser-lab/desktop-album-script.test.cjs
 ```
 
-脚本按源码中的版本配置命名 APK；当前正式版本生成 `outputs/apk/yingxia-1.2.0.apk`，`v1.1.0` 标签源码生成正式版 `yingxia-1.1.0.apk`。Linux/macOS 可使用仓库自带的 Gradle Wrapper；环境配置与运行测试见 [构建说明](docs/BUILD.md)。
+脚本按源码中的版本配置命名 APK；当前生成 `outputs/apk/yingxia-1.2.1.apk`。Linux/macOS 可使用仓库自带的 Gradle Wrapper；环境配置与运行测试见 [构建说明](docs/BUILD.md)。
 
 ## 解析范围
 

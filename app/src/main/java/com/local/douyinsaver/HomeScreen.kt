@@ -64,7 +64,7 @@ internal fun HomeScreen(model: SaverViewModel, download: (Boolean) -> Unit) {
             }
             if (singleTask && model.stage != TaskStage.IDLE && (model.stage != TaskStage.READY ||
                     (model.message != "解析完成，可以下载视频" && !model.message.startsWith("已解析 ")))) TaskFeedback(model)
-            else if (model.video == null || !singleTask) Text("也可以从抖音分享菜单直接发送到这里。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else if (model.video == null || !singleTask) Text("在抖音复制作品链接，再点击“粘贴并解析”。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (singleTask && model.video == null && model.browsingId != null && model.stage == TaskStage.FAILED) {
                 Text("若这是图文作品，可尝试读取官方桌面图集的动态资源。", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -298,8 +298,8 @@ internal fun GifQualityControls(quality: GifExportQuality, enabled: Boolean, onQ
                 modifier = Modifier.weight(1f), label = { Text(if (option == GifExportQuality.SHARE) "分享用 GIF" else "清晰 GIF") })
         }
     }
-    Text(if (quality == GifExportQuality.SHARE) "降低尺寸、帧率与颜色以减少体积，保留所选完整时长。较长片段建议保存 MP4；聊天入口的播放支持可能不同。"
-        else "保留更多画面细节，体积会明显大于 MP4；GIF 最多 256 色，无法等同原视频画质。",
+    Text(if (quality == GifExportQuality.SHARE) "480 像素、最高 10 帧/秒、128 色；不按体积自动降档，只保存一份。抖音请从表情入口添加。"
+        else "清晰优先：960 像素、最高 30 帧/秒、256 色，不按体积降档、不放大小素材，只保存一份。原 GIF 未修改时长时直接保存；转 GIF 仍受 256 色限制。抖音请从表情入口添加。",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 

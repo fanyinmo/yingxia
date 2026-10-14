@@ -1,5 +1,13 @@
 # 发布与维护
 
+## 当前 1.2.1
+
+2026-10-14，versionCode 47。用户授权正式化和上传，使用重新构建、原签名已核验的普通 APK。源码与版本说明提交至 main，标签为 v1.2.1；安装包通过 Releases 分发，不提交候选、私钥、构建缓存或聊天截图。
+
+本次使用已连接的 GitHub 工具上传源码及有界 git-blob 传输片段，沿用已有发布工作流逐段核验并组合原签名 APK。发布流程不重新构建安装包，不创建新凭据；已发布的相同附件会直接核验并返回。最新本地交付见 `outputs/latest/`，归档说明见 [工作区目录](WORKSPACE.md)。
+
+以下为以前发布与通用维护记录；当前验证范围见 [1.2.1](testing/RELEASE_1_2_1.md)。
+
 - 源码仓库：[fanyinmo/yingxia](https://github.com/fanyinmo/yingxia)
 - 安装包：[GitHub Releases](https://github.com/fanyinmo/yingxia/releases)
 - 首个 Git 版本：影匣 **1.0.0**，`versionCode 10`。

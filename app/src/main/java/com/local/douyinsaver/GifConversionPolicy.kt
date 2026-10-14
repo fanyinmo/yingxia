@@ -63,7 +63,7 @@ internal object GifConversionPolicy {
     fun sharingSummary(byteCount: Long): String {
         require(byteCount > 0) { "GIF 文件大小无效" }
         val size = String.format(Locale.ROOT, "%.2f MiB", byteCount / (1024.0 * 1024.0))
-        return "GIF 文件：$size。聊天应用的播放支持取决于实际入口；若无法播放，可缩短片段或分享 MP4。"
+        return "GIF 文件：$size。微信、QQ 可从支持动图的入口发送。抖音建议从笑脸→收藏表情→＋添加；＋→相册发送失败时请改用表情入口，支持情况以实际入口为准。长片段建议分享 MP4。"
     }
 
     // Quotient/remainder arithmetic avoids overflowing duration * frame index.

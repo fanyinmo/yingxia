@@ -777,7 +777,7 @@ class AlbumMotionEngineTest {
         }
     }
 
-    @Test fun parsingAutomaticallyReadsTheSameAlbumAndPromotesMotionWithoutSaving() = isolated { engine, records, old ->
+    @Test fun staticParsingDoesNotReadUntilManuallyRequestedAndPromotesMotionWithoutSaving() = isolated { engine, records, old ->
         val base = album(1)
         val enriched = live(base)
         var reads = 0
@@ -787,6 +787,9 @@ class AlbumMotionEngineTest {
                 assertEquals(base.id, id); reads++; callback = complete
             }
             acceptParsed(engine, base)
+            assertEquals(0, reads)
+            assertFalse(engine.busy)
+            engine.checkAlbumMotion()
             assertEquals(1, reads)
             assertEquals(AlbumMotionPhase.READING, engine.albumMotionState().phase)
             assertTrue(engine.busy)
@@ -801,7 +804,7 @@ class AlbumMotionEngineTest {
 
     @Test fun automaticVerificationOrTimeoutKeepsCoversAndReleasesTheRead() = isolated { engine, records, old ->
         listOf(DesktopAlbumStatus.NEEDS_VERIFICATION, DesktopAlbumStatus.UNAVAILABLE).forEachIndexed { index, status ->
-            val base = album(index + 1)
+            val base = missingLive(album(index + 1))
             main {
                 engine.albumMotionResolveOverride = { _, complete -> complete(DesktopAlbumResult(status, reason = "fixture timeout")) }
                 acceptParsed(engine, base)
@@ -950,21 +953,18 @@ class AlbumMotionEngineTest {
         } }
     }
 
-    @Test fun missingLiveRecoveryStillRejectsUntrustedCoversOtherMissingDynamicAssetsAndSourceLessVideos() = isolated { engine, records, old ->
+    @Test fun missingLiveRecoveryStillRejectsUntrustedCoversAndSourceLessVideos() = isolated { engine, records, old ->
         val base = album(1).let { source -> source.copy(images = source.images.mapIndexed { index, image ->
             if (index == 0) image.copy(kind = AlbumAssetKind.LIVE) else image
         }) }
         val badCover = base.copy(images = base.images.mapIndexed { index, image ->
             if (index == 0) image.copy(url = "https://untrusted.example/cover.jpg", mediaSources = emptyList()) else image
         })
-        val missingOtherMotion = base.copy(images = base.images.mapIndexed { index, image ->
-            if (index == 1) image.copy(kind = AlbumAssetKind.DYNAMIC) else image
-        })
         val noVideoSource = ParsedVideo(base.id, "source-less video", "", 2.0, 640, 480)
         main {
             engine.albumMotionResolveOverride = { _, _ -> error("Unavailable covers or unrelated missing sources must fail before desktop reading") }
             engine.queueSaveOverride = { _, _ -> error("Rejected source must not save") }
-            listOf(badCover, missingOtherMotion, noVideoSource).forEach { rejected ->
+            listOf(badCover, noVideoSource).forEach { rejected ->
                 acceptParsed(engine, rejected)
                 assertEquals(TaskStage.FAILED, engine.stage)
                 assertNull(engine.video)
@@ -1001,7 +1001,7 @@ class AlbumMotionEngineTest {
         }
         await { !engine.queueRunning && !engine.busy }
         main {
-            assertEquals(listOf(first.id, second.id), reads)
+            assertEquals(listOf(first.id), reads)
             assertTrue(engine.queue.all { it.status == QueueStatus.READY })
             assertSame(first, engine.queueResults["first"])
             assertEquals(AlbumAssetKind.LIVE, engine.queueResults["first"]!!.images.first().kind)
@@ -1038,7 +1038,7 @@ class AlbumMotionEngineTest {
     }
 
     @Test fun clearingInputRetiresAnAutomaticReadAndRejectsItsLateCandidate() = isolated { engine, records, old ->
-        val base = album(1)
+        val base = missingLive(album(1))
         var callback: ((DesktopAlbumResult) -> Unit)? = null
         main {
             engine.albumMotionResolveOverride = { _, complete -> callback = complete }
@@ -1054,7 +1054,7 @@ class AlbumMotionEngineTest {
     }
 
     @Test fun pausingAnAutomaticQueueReadReleasesBusyAndIgnoresItsLateCandidate() = isolated { engine, records, old ->
-        val first = album(1); val second = album(2)
+        val first = missingLive(album(1)); val second = album(2)
         var late: ((DesktopAlbumResult) -> Unit)? = null
         main {
             state(engine, "queue", listOf(QueueTask("first", "https://www.douyin.com/note/${first.id}", status = QueueStatus.PARSING),
@@ -1087,7 +1087,7 @@ class AlbumMotionEngineTest {
     }
 
     @Test fun automaticVerificationInAQueueDoesNotBlockTheNextWork() = isolated { engine, records, old ->
-        val first = album(1); val second = album(2)
+        val first = missingLive(album(1)); val second = album(2)
         val reads = mutableListOf<String>()
         main {
             state(engine, "queue", listOf(QueueTask("first", "https://www.douyin.com/note/${first.id}", status = QueueStatus.PARSING),
@@ -1104,7 +1104,7 @@ class AlbumMotionEngineTest {
         }
         await { !engine.queueRunning && !engine.busy }
         main {
-            assertEquals(listOf(first.id, second.id), reads)
+            assertEquals(listOf(first.id), reads)
             assertEquals(setOf("first", "second"), engine.queueResults.keys)
             assertTrue(engine.queue.all { it.status == QueueStatus.READY })
             assertEquals(listOf(old), records.history())
@@ -1293,7 +1293,7 @@ class AlbumMotionEngineTest {
                 val scope = SaverEngine::class.java.getDeclaredField("scope").apply { isAccessible = true }.get(engine) as CoroutineScope
                 scope.cancel()
             }
-            listOf("downloads", "download_tasks", "download_options", "parse_diagnostics").forEach {
+            listOf("downloads", "download_tasks", "download_options", "parse_diagnostics", "parse_records").forEach {
                 application.deleteSharedPreferences(prefix + it)
             }
         }
@@ -1303,6 +1303,10 @@ class AlbumMotionEngineTest {
         val delegate = SaverEngine::class.java.getDeclaredField("${name}\$delegate").apply { isAccessible = true }.get(engine)
         (delegate as MutableState<T>).value = value
     }
+
+    private fun missingLive(content: ParsedVideo) = content.copy(images = content.images.mapIndexed { index, image ->
+        if (index == 0) image.copy(kind = AlbumAssetKind.LIVE) else image
+    })
 
     private fun main(block: () -> Unit) = instrumentation.runOnMainSync(block)
 

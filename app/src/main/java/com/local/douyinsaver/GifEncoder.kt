@@ -2,6 +2,8 @@ package com.local.douyinsaver
 
 import java.io.OutputStream
 
+internal class GifSizeLimitException : IllegalArgumentException("GIF 文件超过大小上限，请缩短时长或改为保存原始资源")
+
 /**
  * Streaming GIF89a with the smallest local table that holds each frame's adaptive palette.
  * It retains one indexed frame, at most 32768 color bins and a bounded LZW dictionary.
@@ -12,6 +14,7 @@ internal class GifEncoder(
     val height: Int,
     private val maximumBytes: Long = GifConversionPolicy.MAX_GIF_BYTES,
     private val maximumColors: Int = 256,
+    private val compatibleColorTables: Boolean = false,
     private val checkpoint: () -> Unit = {},
 ) {
     var frameCount: Int = 0; private set
@@ -27,9 +30,14 @@ internal class GifEncoder(
         require(width in 1..GifConversionPolicy.MAX_EDGE && height in 1..GifConversionPolicy.MAX_EDGE) { "GIF 画面尺寸超过上限" }
         require(maximumBytes in 1..GifConversionPolicy.MAX_GIF_BYTES) { "GIF 文件大小上限无效" }
         require(maximumColors in 2..256 && maximumColors and (maximumColors - 1) == 0) { "GIF 色表上限无效" }
+        if (!compatibleColorTables) writeHeader(intArrayOf(0, 0xffffff))
+    }
+
+    private fun writeHeader(palette: IntArray) {
         bytes("GIF89a".toByteArray(Charsets.US_ASCII))
         short(width); short(height)
-        byte(0x70); byte(0); byte(0) // No global palette; each frame declares its own table size.
+        byte(0xf0 or (Integer.numberOfTrailingZeros(palette.size) - 1)); byte(0); byte(0)
+        writePalette(palette)
         // NETSCAPE2.0 loop count 0 means repeat forever.
         byte(0x21); byte(0xff); byte(11)
         bytes("NETSCAPE2.0".toByteArray(Charsets.US_ASCII))
@@ -43,12 +51,18 @@ internal class GifEncoder(
         require(delayCentiseconds in 1..65535 && durationCentiseconds <= Long.MAX_VALUE - delayCentiseconds) { "GIF 帧时长无效" }
         checkpoint()
         val quantized = GifPalette.quantize(argb, maximumColors, checkpoint)
-        val paletteBits = Integer.numberOfTrailingZeros(quantized.colors.size)
+        // Conventional 8-bit storage is independent of quantization quality. The first
+        // frame supplies the actual global palette, rather than a dummy background.
+        val palette = if (compatibleColorTables) quantized.colors.copyOf(256) else quantized.colors
+        val paletteBits = Integer.numberOfTrailingZeros(palette.size)
+        val usesGlobalPalette = compatibleColorTables && frameCount == 0
+        if (usesGlobalPalette) writeHeader(palette)
         // Graphic Control Extension: disposal=1, no transparency, real frame-specific delay.
         byte(0x21); byte(0xf9); byte(4); byte(4)
         short(delayCentiseconds); byte(0); byte(0)
-        byte(0x2c); short(0); short(0); short(width); short(height); byte(0x80 or (paletteBits - 1))
-        for (color in quantized.colors) { byte(color ushr 16); byte(color ushr 8); byte(color) }
+        byte(0x2c); short(0); short(0); short(width); short(height)
+        byte(if (usesGlobalPalette) 0 else 0x80 or (paletteBits - 1))
+        if (!usesGlobalPalette) writePalette(palette)
         val minimumCodeSize = maxOf(2, paletteBits) // GIF requires at least two bits, even for two colors.
         byte(minimumCodeSize)
         writeLzw(quantized.pixels, minimumCodeSize)
@@ -124,13 +138,16 @@ internal class GifEncoder(
     }
 
     private fun byte(value: Int) {
-        require(bytesWritten < maximumBytes) { "GIF 文件超过大小上限，请缩短时长或改为保存原始资源" }
+        if (bytesWritten >= maximumBytes) throw GifSizeLimitException()
         output.write(value and 255)
         bytesWritten++
     }
+    private fun writePalette(palette: IntArray) {
+        for (color in palette) { byte(color ushr 16); byte(color ushr 8); byte(color) }
+    }
     private fun short(value: Int) { byte(value); byte(value ushr 8) }
     private fun bytes(value: ByteArray, count: Int = value.size) {
-        require(count <= maximumBytes - bytesWritten) { "GIF 文件超过大小上限，请缩短时长或改为保存原始资源" }
+        if (count > maximumBytes - bytesWritten) throw GifSizeLimitException()
         output.write(value, 0, count)
         bytesWritten += count
     }

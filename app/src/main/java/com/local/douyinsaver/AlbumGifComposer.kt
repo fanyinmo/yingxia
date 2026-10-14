@@ -26,6 +26,17 @@ internal class AlbumGifComposer(private val quality: GifExportQuality = GifExpor
         durationsMs: List<Long>,
         destination: File,
         onProgress: suspend (Long, Long) -> Unit,
+    ): File = GifSharePolicy.encode(quality) { profile, budget ->
+        composeInternal(images, durationsMs, destination, profile, budget, onProgress)
+    }
+
+    private suspend fun composeInternal(
+        images: List<LocalAlbumImage>,
+        durationsMs: List<Long>,
+        destination: File,
+        profile: GifSharePolicy.Profile,
+        maximumBytes: Long,
+        onProgress: suspend (Long, Long) -> Unit,
     ): File = withContext(Dispatchers.IO) {
         AlbumMediaPolicy.validateImages(images.size)
         require(images.size >= 2) { "至少需要两张静态图片才能制作切换 GIF" }
@@ -41,7 +52,7 @@ internal class AlbumGifComposer(private val quality: GifExportQuality = GifExpor
                 require(!it.animated) { "图片切换 GIF 仅适用于静态图集；动图请使用动态资源保存或 GIF 转换" }
             }
         }
-        val (width, height) = GifConversionPolicy.canvas(verified.first().width, verified.first().height, quality)
+        val (width, height) = GifSharePolicy.canvas(verified.first().width, verified.first().height, profile)
         val pixels = IntArray(width * height)
         val frame = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(frame)
@@ -53,7 +64,9 @@ internal class AlbumGifComposer(private val quality: GifExportQuality = GifExpor
             owned = destination.createNewFile()
             require(owned) { "GIF 输出文件已存在，请使用新的文件名" }
             destination.outputStream().buffered(64 * 1024).use { output ->
-                val encoder = GifEncoder(output, width, height, maximumColors = quality.maximumColors, checkpoint = { coroutine.ensureActive() })
+                val encoder = GifEncoder(output, width, height, maximumBytes = maximumBytes,
+                    maximumColors = profile.colors, compatibleColorTables = true,
+                    checkpoint = { coroutine.ensureActive() })
                 onProgress(0L, verified.size.toLong())
                 verified.forEachIndexed { index, image ->
                     coroutine.ensureActive()

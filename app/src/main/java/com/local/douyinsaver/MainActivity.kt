@@ -39,7 +39,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class AppPage(val label: String) { HOME("首页"), HISTORY("下载记录"), SETTINGS("设置") }
+enum class AppPage(val label: String) { HOME("首页"), PARSE_HISTORY("解析记录"), HISTORY("下载记录"), SETTINGS("设置") }
 
 class MainActivity : ComponentActivity() {
     private val model: SaverViewModel by viewModels()
@@ -110,13 +110,15 @@ private fun SaverScreen(model: SaverViewModel, appearance: AppearanceStore) {
                 NavigationBar(containerColor = appearancePanelColor(), tonalElevation = 0.dp) {
                     AppPage.entries.forEach { page -> NavigationBarItem(selected = model.selectedPage == page,
                         onClick = { model.selectedPage = page }, icon = { Glyph(when (page) {
-                            AppPage.HOME -> GlyphKind.HOME; AppPage.HISTORY -> GlyphKind.HISTORY; AppPage.SETTINGS -> GlyphKind.SETTINGS
+                            AppPage.HOME -> GlyphKind.HOME; AppPage.PARSE_HISTORY -> GlyphKind.LINK
+                            AppPage.HISTORY -> GlyphKind.HISTORY; AppPage.SETTINGS -> GlyphKind.SETTINGS
                         }) }, label = { Text(page.label) }) }
                 }
             }) { padding ->
             Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 when (model.selectedPage) {
                     AppPage.HOME -> HomeScreen(model, download)
+                    AppPage.PARSE_HISTORY -> ParseHistoryScreen(model)
                     AppPage.HISTORY -> HistoryScreen(model)
                     AppPage.SETTINGS -> SettingsScreen(model, appearance, chooseFolder, requestNotification)
                 }

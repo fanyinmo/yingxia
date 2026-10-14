@@ -75,8 +75,7 @@ internal class AlbumDownloader(private val context: Context, private val transfe
                             storage, folder, options, onProgress, onSaved)
                     } else {
                         val videos = entries.mapIndexed { index, entry -> entry.motionVideo ?:
-                            if (entry.image.animated && (entry.image.mimeType != "image/gif" || options.itemDurationSeconds != null ||
-                                options.gifExportQuality == GifExportQuality.SHARE))
+                            if (entry.image.animated && (entry.image.mimeType != "image/gif" || options.itemDurationSeconds != null))
                                 AnimatedImageVideoConverter(context).convert(entry.image, File(directory, "native_$index.mp4")) else null }
                         val originals = videos.map { file -> file?.let { gifConverter.readDurationMs(it) } }
                         val durations = AlbumTiming.durations(originals, options)

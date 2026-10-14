@@ -2,9 +2,9 @@
 
 本版已移除实况照片保存和动图转实况。保留静图、原格式动图、无声 MP4、GIF、单项保存及 BGM 合成。动态卡片只提供保留动态素材和 GIF；批量保存默认保留已有格式，未分类片段保存为无声动图。旧记录与旧文件保留；读取内嵌动态片段只用于兼容预览或 GIF／BGM 输入，不再生成实况照片。
 
-当前正式版为 **1.2.0 / code 42**，本地安装包与源码位于 `outputs/latest/`，采用用户确认的 rc21 功能。本轮模拟器实际结果及限制见 [电脑验证](testing/EMULATOR_RC21.md) 和 [最新版说明](CURRENT_VERSION.md)。
+当前正式版为 **1.2.1 / code 47**，本地安装包与源码位于 `outputs/latest/`。实际验证范围见 [正式包检查](testing/RELEASE_1_2_1.md) 和 [最新版说明](CURRENT_VERSION.md)。
 
-当前正式构建为影匣 **1.2.0 / versionCode 42**，采用用户已确认的 rc21 功能，正式包单独构建并校验版本、签名与摘要。首版基线为 **1.0.0 / code 10**，第二版为 **1.1.0 / code 20**；相对变更见 [CHANGELOG](CHANGELOG.md)。
+当前正式构建为影匣 **1.2.1 / versionCode 47**，正式包单独构建并校验版本、签名与摘要。首版基线为 **1.0.0 / code 10**，第二版为 **1.1.0 / code 20**；相对变更见 [CHANGELOG](CHANGELOG.md)。
 
 环境为 JDK 17、Gradle 8.13、AGP 8.13.2、Kotlin 2.2.21、compile/target SDK 35、min SDK 29。图标与默认主题使用天蓝色。
 
@@ -35,7 +35,7 @@ python scripts/bootstrap_android.py --accept-license
 node --test parser-lab/browser-script.test.cjs parser-lab/public-page-script.test.cjs parser-lab/desktop-album-script.test.cjs
 ```
 
-非 Windows 对应命令为 `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`。普通构建输出 `app/build/outputs/apk/debug/app-debug.apk`；PowerShell 脚本按 `versionName` 复制到 `outputs/apk/yingxia-1.2.0.apk`。测试包位于 `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`。
+非 Windows 对应命令为 `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`。普通构建输出 `app/build/outputs/apk/debug/app-debug.apk`；PowerShell 脚本按 `versionName` 复制到 `outputs/apk/yingxia-1.2.1.apk`。测试包位于 `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`。
 
 普通 APK 不包含 instrumentation 或图集测试素材。独立测试 APK 只用于开发设备。`phonecheck` 是开发测试变体，不能作为正式安装包发布。
 
@@ -46,7 +46,7 @@ node --test parser-lab/browser-script.test.cjs parser-lab/public-page-script.tes
 ```powershell
 $taskAdb = './.tools/android-sdk/platform-tools/adb.exe'
 $taskDevice = '<当前测试设备编号>'
-& $taskAdb -s $taskDevice install -r 'outputs/apk/yingxia-1.2.0.apk'
+& $taskAdb -s $taskDevice install -r 'outputs/apk/yingxia-1.2.1.apk'
 & $taskAdb -s $taskDevice install -r 'app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'
 & $taskAdb -s $taskDevice shell am instrument -w -e class 'com.local.douyinsaver.CustomColorPickerTest' 'com.local.douyinsaver.test/androidx.test.runner.AndroidJUnitRunner'
 ```

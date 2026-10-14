@@ -12,6 +12,45 @@ import org.w3c.dom.Node
 
 /** The JDK's independent GIF reader validates every compressed frame, including LZW width changes. */
 class GifEncoderTest {
+    @Test fun compatibleTablesDecodeIdenticalPixelsWithRealFirstFrameGlobalPalette() {
+        for (colors in listOf(2, 4, 32, 128, 256)) {
+            val random = Random(134L + colors)
+            val first = IntArray(128 * 96) { paletteColor(random.nextInt(colors)) }
+            val second = first.reversedArray()
+            val output = ByteArrayOutputStream()
+            val encoder = GifEncoder(output, 128, 96, maximumColors = colors, compatibleColorTables = true)
+            encoder.addFrame(first, 300)
+            encoder.addFrame(second, 11)
+            encoder.finish()
+            val bytes = output.toByteArray()
+            assertEquals(0xf7, bytes[10].toInt() and 255)
+            assertEquals(0x21, bytes[13 + 768].toInt() and 255)
+            assertEquals(bytes.size.toLong(), encoder.bytesWritten)
+            withReader(bytes) { reader ->
+                assertEquals(2, reader.getNumImages(true))
+                for ((index, expected) in listOf(first, second).withIndex()) {
+                    val frame = reader.read(index)
+                    for (pixel in expected.indices) assertEquals(expected[pixel], frame.getRGB(pixel % 128, pixel / 128))
+                    val nodes = children(reader.getImageMetadata(index).getAsTree("javax_imageio_gif_image_1.0"))
+                    val local = nodes.firstOrNull { it.nodeName == "LocalColorTable" }
+                    if (index == 0) assertTrue(local == null)
+                    else assertEquals("256", local!!.attributes.getNamedItem("sizeOfLocalColorTable").nodeValue)
+                    assertEquals(if (index == 0) "300" else "11",
+                        nodes.first { it.nodeName == "GraphicControlExtension" }.attributes.getNamedItem("delayTime").nodeValue)
+                }
+            }
+        }
+    }
+
+    @Test fun compatibleHeaderRespectsByteBudgetBeforeWritingFirstFrame() {
+        val output = ByteArrayOutputStream()
+        val encoder = GifEncoder(output, 4, 4, maximumBytes = 100, compatibleColorTables = true)
+        assertThrows(GifSizeLimitException::class.java) { encoder.addFrame(IntArray(16) { 0xff00ff00.toInt() }, 10) }
+        assertEquals(100, output.size())
+        assertEquals(100L, encoder.bytesWritten)
+        assertEquals(0, encoder.frameCount)
+    }
+
     @Test fun writesLoopingTrueRedAndBlueFramesWithExactDelays() {
         val output = ByteArrayOutputStream()
         val encoder = GifEncoder(output, 16, 12)
@@ -20,6 +59,9 @@ class GifEncoderTest {
         encoder.finish()
         val data = output.toByteArray()
         assertEquals("GIF89a", data.copyOfRange(0, 6).toString(Charsets.US_ASCII))
+        assertTrue("A defined global background table must exist", data[10].toInt() and 0x80 != 0)
+        assertEquals(0, data[10].toInt() and 7)
+        assertEquals(listOf(0, 0, 0, 255, 255, 255), data.copyOfRange(13, 19).map { it.toInt() and 255 })
         assertEquals(0x3b, data.last().toInt() and 255)
         assertTrue(data.toString(Charsets.ISO_8859_1).contains("NETSCAPE2.0"))
         assertEquals(2, encoder.frameCount)

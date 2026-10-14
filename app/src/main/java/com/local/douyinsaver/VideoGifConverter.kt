@@ -35,7 +35,9 @@ internal class VideoGifConverter {
         durationMs: Long,
         quality: GifExportQuality,
         onProgress: suspend (Long, Long) -> Unit,
-    ): File = convertInternal(source, destination, startMs, durationMs, allowLoop = false, quality = quality, onProgress = onProgress)
+    ): File = GifSharePolicy.encode(quality) { profile, budget ->
+        convertInternal(source, destination, startMs, durationMs, false, quality, profile, budget, onProgress)
+    }
 
     /** Gallery duration overrides trim from zero or repeat the real clip without stretching it. */
     suspend fun convertLooped(
@@ -51,7 +53,9 @@ internal class VideoGifConverter {
         requestedDurationMs: Long,
         quality: GifExportQuality,
         onProgress: suspend (Long, Long) -> Unit,
-    ): File = convertInternal(source, destination, 0L, requestedDurationMs, allowLoop = true, quality = quality, onProgress = onProgress)
+    ): File = GifSharePolicy.encode(quality) { profile, budget ->
+        convertInternal(source, destination, 0L, requestedDurationMs, true, quality, profile, budget, onProgress)
+    }
 
     private suspend fun convertInternal(
         source: File,
@@ -60,6 +64,8 @@ internal class VideoGifConverter {
         durationMs: Long,
         allowLoop: Boolean,
         quality: GifExportQuality,
+        profile: GifSharePolicy.Profile,
+        maximumBytes: Long,
         onProgress: suspend (Long, Long) -> Unit,
     ): File = withContext(Dispatchers.IO) {
         val declaredFrameRate = validateSource(source)
@@ -76,11 +82,11 @@ internal class VideoGifConverter {
                 ?.toDoubleOrNull()?.let { it * 1000.0 / sourceDuration }
             val frameRate = declaredFrameRate ?: countedFrameRate ?: GifConversionPolicy.FRAMES_PER_SECOND.toDouble()
             val timelineDuration = if (allowLoop) maxOf(sourceDuration, durationMs) else sourceDuration
-            val plan = GifConversionPolicy.plan(timelineDuration, startMs, durationMs, frameRate, quality)
+            val plan = GifConversionPolicy.plan(timelineDuration, startMs, durationMs, GifSharePolicy.frameRate(frameRate, profile), quality)
             val sourceWidth = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
             val sourceHeight = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
             GifConversionPolicy.canvas(sourceWidth, sourceHeight, quality) // Validate source geometry before codec work.
-            val edge = minOf(quality.maximumEdge, maxOf(sourceWidth, sourceHeight))
+            val edge = minOf(profile.edge, maxOf(sourceWidth, sourceHeight))
             currentCoroutineContext().ensureActive()
             owned = destination.createNewFile()
             require(owned) { "GIF 输出文件已存在，请使用新的文件名" }
@@ -100,7 +106,8 @@ internal class VideoGifConverter {
                     try {
                         conversionContext.ensureActive()
                         if (encoder == null) {
-                            encoder = GifEncoder(output, frame.width, frame.height, maximumColors = quality.maximumColors,
+                            encoder = GifEncoder(output, frame.width, frame.height, maximumBytes = maximumBytes, maximumColors = profile.colors,
+                                compatibleColorTables = true,
                                 checkpoint = { conversionContext.ensureActive() })
                             pixels = IntArray(frame.width * frame.height)
                         }

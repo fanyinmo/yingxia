@@ -60,7 +60,7 @@ internal fun AlbumMotionSaveControls(state: AlbumMotionReadState, enabled: Boole
         val explanation = when (mode) {
             AlbumMode.IMAGES -> "GIF / WebP 保留原格式；视频型动态素材保存为无声 MP4。图集中的静图也会保留。"
             AlbumMode.MOTION_VIDEOS -> "动态片段保存为无声 MP4，保留来源画面尺寸和帧率。"
-            AlbumMode.GIF -> "按下方画质选项生成无声 GIF。分享模式减小体积，清晰模式保留更多细节。"
+            AlbumMode.GIF -> "原 GIF 未修改时长时直接保存；其他动态素材按下方画质生成 GIF，不按体积自动降低画质。"
             else -> "选择保留动态素材或生成 GIF。"
         }
         Text(explanation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
